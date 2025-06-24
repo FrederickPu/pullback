@@ -1,0 +1,10 @@
+name = "pullback"
+version = "0.1.0"
+defaultTargets = ["pullback"]
+
+[[lean_lib]]
+name = "Pullback"
+
+[[lean_exe]]
+name = "pullback"
+root = "Main"
