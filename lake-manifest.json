@@ -1,5 +1,15 @@
 {"version": "1.1.0",
  "packagesDir": ".lake/packages",
- "packages": [],
+ "packages":
+ [{"url": "https://github.com/leanprover-community/quote4.git",
+   "type": "git",
+   "subDir": null,
+   "scope": "",
+   "rev": "95c2f8afe09d9e49d3cacca667261da04f7f93f7",
+   "name": "Qq",
+   "manifestFile": "lake-manifest.json",
+   "inputRev": null,
+   "inherited": false,
+   "configFile": "lakefile.toml"}],
  "name": "pullback",
  "lakeDir": ".lake"}

@@ -8,3 +8,7 @@ name = "Pullback"
 [[lean_exe]]
 name = "pullback"
 root = "Main"
+
+[[require]]
+name = "Qq"
+git = "https://github.com/leanprover-community/quote4.git"
