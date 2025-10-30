@@ -23,11 +23,10 @@ def Expr.toTerm: Expr → MetaM (TSyntax `term)
     let v₁ ← Expr.toTerm e₁
     let v₂ ← Expr.toTerm e₂
     `(if $v₁ < $v₂ then 1 else 0)
-  | _ => `(0)
-  -- | Expr.deref e => do
-  --   let e' ← Expr.toTerm e
-  --   -- note: the below is a valid term since it only requires the Bind typeclass instance and doesnt need do notation to work
-  --   `(← Memory.read $e')
+  | Expr.deref e => do
+    let e' ← Expr.toTerm e
+    -- note: the below is a valid term since it only requires the Bind typeclass instance and doesnt need do notation to work
+    `(← Memory.read $e')
 
 #check HashSet
 
@@ -40,23 +39,22 @@ def Stmt.toDoSeqItem : Stmt → StateT (HashSet Name) MetaM (TSyntaxArray `Lean.
       pure #[← `(Lean.Parser.Term.doSeqItem| let mut $xId ← $eSyn:term)]
     else
       pure #[← `(Lean.Parser.Term.doSeqItem| $xId:ident ← $eSyn:term)]
-  -- | .assignPtr ptr e => do
-  --   let ptr' ← Expr.toTerm ptr
-  --   let e' ← Expr.toTerm e
-  --   pure #[← `(Lean.Parser.Term.doSeqItem| Memory.write $ptr' $e')]
+  | .assignPtr ptr e => do
+    let ptr' ← Expr.toTerm ptr
+    let e' ← Expr.toTerm e
+    pure #[← `(Lean.Parser.Term.doSeqItem| Memory.write $ptr' $e')]
   | .seq s₁ s₂ => do
     return (← toDoSeqItem s₁) ++ (← toDoSeqItem s₂)
   | .while c b => do
     let cSyn ← Expr.toTerm c
     let bSyn ← toDoSeqItem b
-    let bSyn ← `(Lean.Parser.Term.doSeqItem| while $cSyn do $bSyn*)
+    let bSyn ← `(Lean.Parser.Term.doSeqItem| while $cSyn == (0:Nat) do $bSyn*)
     pure #[bSyn]
   | .IfThenElse c t e => do
     let cSyn ← Expr.toTerm c
     let tSyn ← toDoSeqItem t
     let eSyn ← toDoSeqItem e
-    pure #[← `(Lean.Parser.Term.doSeqItem| if $cSyn then do $tSyn* else do $eSyn*)]
-  | _ => pure #[]
+    pure #[← `(Lean.Parser.Term.doSeqItem| if $cSyn == (0:Nat) then do $tSyn* else do $eSyn*)]
 
 -- Example use
 def testStmt : Stmt :=
@@ -98,7 +96,7 @@ open Qq
 #eval (do
   let (x, _) ← (Stmt.toDoSeqItem testStmt).run {};
   IO.println (← `(do $x*)).raw
-  let nihee ← Lean.Elab.Term.elabTermAndSynthesize (← `(do $x*)) q(Id Nat)
+  let nihee ← Lean.Elab.Term.elabTermAndSynthesize (← `(do $x*)) q(Id Unit)
   IO.println "bruhh"
   IO.println (← Lean.Meta.ppExpr nihee).pretty
   : Lean.Elab.Term.TermElabM Unit)
