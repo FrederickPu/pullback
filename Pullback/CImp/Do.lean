@@ -116,3 +116,14 @@ def runTest : IO Unit := do
     IO.println s!"Error: {err}"
 
 #check evalStmt testStmt
+
+/-!
+define undefined intialization values by having function
+`init {α : Type} : m α`
+such that `⊢ₛ p (do let x ← init; body)`
+if and only if
+`∀ x : α, ⊢ₛ p body`
+
+this is better then having init : m (WithBot α) since stuff like
+`do let x ← init; return x - x` is actually well defined in the former definition but if using `WithBot` this would be undefined.
+-/
