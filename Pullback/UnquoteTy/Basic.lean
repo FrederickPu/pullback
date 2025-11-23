@@ -18,6 +18,8 @@ open UnquoteTy
 -- can be defined using map and `UnquoteTy.interpret_imp`
 def UnquoteTy.app {Ty : Type} [UnquoteTy Ty] {α β : Ty} : «syntax» (α → β) → «syntax» α → «syntax» β := sorry
 
+notation:20 x "<||" y => UnquoteTy.app x y
+
 /-
   TODO should add this to `push_cast` and `norm_cast` tactic somehow
 -/

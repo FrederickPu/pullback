@@ -47,7 +47,7 @@ macro:0 s₁:stmt ";" s₂:stmt : stmt => `(stmt| let x ← $s₁; $s₂)       
 open UnquoteTy MonadTy
 
 #check  (UnquoteTy.app MonadTy.bind (sorry : «syntax» (id SimpleTy.nat)))
-#check (UnquoteTy.app (UnquoteTy.app MonadTy.bind (UnquoteTy.app MonadTy.pure (1 : Nat) : «syntax» (id SimpleTy.nat))) (SimpleTy.idNat) : «syntax» (id SimpleTy.nat))
+#check ((MonadTy.bind <|| (MonadTy.pure <|| (1 : Nat) : «syntax» (id SimpleTy.nat))) <|| (SimpleTy.idNat) : «syntax» (id SimpleTy.nat))
 def test : «syntax» (id SimpleTy.nat) := do'
   let x := ((1:Nat) : «syntax» (id SimpleTy.nat));
   x
