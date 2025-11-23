@@ -16,7 +16,7 @@ infixr:30 "→" => UnquoteTy.imp
 open UnquoteTy
 
 -- can be defined using map and `UnquoteTy.interpret_imp`
-def UnquoteTy.app {Ty : Type} [UnquoteTy Ty] (α β : Ty) : «syntax» (α → β) → «syntax» α → «syntax» β := sorry
+def UnquoteTy.app {Ty : Type} [UnquoteTy Ty] {α β : Ty} : «syntax» (α → β) → «syntax» α → «syntax» β := sorry
 
 /-
   TODO should add this to `push_cast` and `norm_cast` tactic somehow
@@ -74,3 +74,9 @@ instance : UnquoteTy SimpleTy where
   hUnit := rfl
 
 instance : MonadTy (id : SimpleTy → SimpleTy) := sorry
+
+open UnquoteTy
+instance : Coe Nat («syntax» SimpleTy.nat) :=
+  ⟨fun x => x⟩
+
+def SimpleTy.idNat : «syntax» (SimpleTy.nat → id SimpleTy.nat) := id

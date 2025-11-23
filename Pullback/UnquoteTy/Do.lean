@@ -40,11 +40,20 @@ macro_rules
     let s' ← expandStmt s
     `(d! $s')
 
-macro "let" x:ident ":=" e:term ";" s:stmt : stmt => `(stmt| let $x ← MonadTy.pure $e; $s)  -- (A1)
+macro "let" x:ident ":=" e:term ";" s:stmt : stmt => `(stmt| let $x ← UnquoteTy.app MonadTy.pure $e; $s)  -- (A1)
 -- priority `0` prevents `;` from being used in trailing contexts without braces (see e.g. `:1` above)
 macro:0 s₁:stmt ";" s₂:stmt : stmt => `(stmt| let x ← $s₁; $s₂)                     -- (A2)
 
 open UnquoteTy MonadTy
+
+#check  (UnquoteTy.app MonadTy.bind (sorry : «syntax» (id SimpleTy.nat)))
+#check (UnquoteTy.app (UnquoteTy.app MonadTy.bind (UnquoteTy.app MonadTy.pure (1 : Nat) : «syntax» (id SimpleTy.nat))) (SimpleTy.idNat) : «syntax» (id SimpleTy.nat))
 def test : «syntax» (id SimpleTy.nat) := do'
-  let x := 10;
-  return x
+  let x := ((1:Nat) : «syntax» (id SimpleTy.nat));
+  x
+
+#print test
+/-!
+def test : «syntax» (id SimpleTy.nat) :=
+app (app MonadTy.bind (app MonadTy.pure 1)) fun x => x
+-/
