@@ -1,5 +1,7 @@
 /-
   TODO :: emulate Monad where proof carrying logic is moved into a seperate typeclass called LawfulUnquoteTy
+
+  note that UnquoteTy's unquoting operation doesn't support dependent types so can only model simple type theory.
 -/
 class UnquoteTy (Ty : Type) where
   -- `syntax T` returns Type describing the syntax of quoted type `T : Ty`
@@ -9,23 +11,20 @@ class UnquoteTy (Ty : Type) where
   unquote  (T : Ty) (t : «syntax» T) : interpret T
   imp (α β : Ty) : Ty
   interpret_imp (α β : Ty) : interpret (imp α β) = (interpret α → interpret β)
-  unit : Ty
-  hUnit : interpret unit = Unit
+  /-
+    TODO should add this to `push_cast` and `norm_cast` tactic somehow
+  -/
+  app {α β : Ty} : «syntax» (imp α β) → «syntax» α → «syntax» β
 
 infixr:30 "→" => UnquoteTy.imp
 open UnquoteTy
 
--- can be defined using map and `UnquoteTy.interpret_imp`
-def UnquoteTy.app {Ty : Type} [UnquoteTy Ty] {α β : Ty} : «syntax» (α → β) → «syntax» α → «syntax» β := sorry
-
 notation:20 x "<||" y => UnquoteTy.app x y
 
-/-
-  TODO should add this to `push_cast` and `norm_cast` tactic somehow
--/
-example {Ty : Type} [UnquoteTy Ty] {α β : Ty} : «syntax» (α → β) = («syntax» α) → («syntax» β) := sorry
 
 class MonadTy {Ty : Type} [UnquoteTy Ty] (m : Ty → Ty) where
+  unit : Ty
+  hUnit : interpret unit = Unit
   map {α β : Ty} : «syntax» (((α → β) → (m α)) → (m β))
   mapConst {α β : Ty} : «syntax» (α → m β → m α)
   pure {α : Ty} : «syntax» (α → (m α))
@@ -72,8 +71,10 @@ instance : UnquoteTy SimpleTy where
   unquote := fun T t => cast (by simp [crux]) t
   imp := SimpleTy.arrow
   interpret_imp := fun α β => rfl
-  unit := SimpleTy.unit
-  hUnit := rfl
+  app := (fun {α β} f a => by {
+    simp [SimpleTy.syntax] at f
+    exact f a
+  })
 
 instance : MonadTy (id : SimpleTy → SimpleTy) := sorry
 
