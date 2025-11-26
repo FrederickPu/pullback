@@ -77,7 +77,7 @@ abbrev DContext (Ty : Type) := DList (fun i => DTerm Ty i)
 
 instance {Ty : Type} : Append (DContext Ty) := ⟨DList.append DTerm.shiftRight⟩
 
-theorem DContext.cons_size {Ty : Type} : (A B : DContext Ty) → (A ++ B).1 = A.1 + B.1
+theorem DContext.size_append {Ty : Type} : (A B : DContext Ty) → (A ++ B).1 = A.1 + B.1
 | ⟨_, xs⟩, ⟨_, ys⟩ => by
   simp only [HAppend.hAppend, Append.append]
   rw [DList.append]
@@ -106,7 +106,7 @@ def DContext.get' {n : Nat} {Ty : Type} (l : DContext Ty) (i : Fin l.1) : DTerm 
 inductive WompWompLam (Ty : Type) (rules : List ((Γ : DContext Ty) × (DTerm Ty Γ.1))) : (Γ : DContext Ty) → (T : DTerm Ty Γ.1) → Type where
 | intro (ruleIdx : Fin rules.length) : WompWompLam Ty rules (rules.get ruleIdx).1 (rules.get ruleIdx).2
 | cut (Γ' Γ : DContext Ty) (α : Ty) (T : DTerm Ty Γ.1) (a : WompWompLam Ty rules Γ' (DTerm.type α)) : (t : WompWompLam Ty rules ((DTerm.type α):::Γ) T.lift) → WompWompLam Ty rules (Γ' ++ Γ) (cast (by {
-  rw [DContext.cons_size, Nat.add_comm]
+  rw [DContext.size_append, Nat.add_comm]
 }) (T.shiftRight (j := Γ'.1)))
 | var (Γ : DContext Ty) (i : Fin Γ.1) : WompWompLam Ty rules Γ (Γ.get' i)
 
@@ -116,7 +116,7 @@ class Unquote (Ty : Type) (rules : List ((Γ : DContext Ty) × DTerm Ty Γ.1)) w
   interpret : (Γ : DContext Ty) → DTerm Ty Γ.1 → Type
   unquote_intro (ruleIdx : Fin rules.length) : interpret (rules.get ruleIdx).1 (rules.get ruleIdx).2
   unquote_cut (Γ' Γ : DContext Ty) (α : Ty) (T : DTerm Ty Γ.1) (a : interpret Γ' (DTerm.type α)) (t : interpret (DTerm.type α:::Γ) T.lift) : interpret (Γ' ++ Γ) (cast (by {
-  rw [DContext.cons_size, Nat.add_comm]
+  rw [DContext.size_append, Nat.add_comm]
 }) (T.shiftRight (j := Γ'.1)))
 
 def nestedVarLam
