@@ -7,19 +7,21 @@ inductive DVec (α : Nat → Type) : Nat → Type
   | nil : DVec α 0
   | push {n : Nat} : DVec α n → α n → DVec α (n + 1)
 
-/--
-  The dependently typed vector whose first element is `head`, where `tail` is the rest of the vector.
-  Usually written `head ::: tail`.
--/
 def DVec.cons {α : Nat → Type} : α 0 → DVec α n → DVec α (n + 1) := sorry
-
-@[inherit_doc] infixr:67 " ::: " => DVec.cons
 
 /-
   dependently typed list
 -/
-inductive DList (α : Nat → Type) where
-| mk (n : Nat) : DVec α n → DList α
+abbrev DList (α : Nat → Type) := Sigma (fun (n : Nat) => DVec α n)
+
+/--
+  The dependently typed list whose first element is `head`, where `tail` is the rest of the list.
+  Usually written `head ::: tail`.
+-/
+def DList.cons {α : Nat → Type} : α 0 → DList α → DList α :=
+  fun a l => ⟨_, DVec.cons a l.2⟩
+
+@[inherit_doc] infixr:67 " ::: " => DList.cons
 
 def DList.get {α : Nat → Type} {n : Nat} (l : DList α) (i : Fin n) : α i := sorry
 
@@ -44,7 +46,7 @@ abbrev DContext (Ty : Type) := DList (fun i => DTerm Ty i)
 
 inductive WompWompLam (Ty : Type) (rules : List ((Γ : DContext Ty) × (DTerm Ty Γ.1))) : (Γ : DContext Ty) → (T : DTerm Ty Γ.1) → Type where
 | intro (ruleIdx : Fin rules.length) : WompWompLam Ty rules (rules.get ruleIdx).1 (rules.get ruleIdx).2
-| cut (Γ' Γ : DContext Ty) (α : Ty) (T : DTerm Ty Γ.1) (a : WompWompLam Ty rules Γ' (DTerm.type α)) : (t : WompWompLam Ty rules (⟨_, (DTerm.type α):::Γ.2⟩) T.shift) → WompWompLam Ty rules (Γ' ++ Γ) (cast (by {
+| cut (Γ' Γ : DContext Ty) (α : Ty) (T : DTerm Ty Γ.1) (a : WompWompLam Ty rules Γ' (DTerm.type α)) : (t : WompWompLam Ty rules ((DTerm.type α):::Γ) T.shift) → WompWompLam Ty rules (Γ' ++ Γ) (cast (by {
   congr
   rw [DList.cons_size, Nat.add_comm]
 }) (T.shift (j := Γ'.1)))
