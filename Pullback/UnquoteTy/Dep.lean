@@ -49,27 +49,35 @@ inductive DTerm (Ty : Type) (i : Nat) where
 | var (i : Nat)
 | app (T₁ T₂ : Ty)
 
-def DTerm.shift {Ty : Type} {i : Nat} {j} : DTerm Ty i → DTerm Ty (i + j)
+def DTerm.lift {Ty : Type} {i : Nat} {j} : DTerm Ty i → DTerm Ty (i + j)
 | .type t => .type t
-| .var i => .var i
+| .var q => .var q
 | .app T₁ T₂ => .app T₁ T₂
 
-def DVec.append {α : Nat → Type} (shift : {i : Nat} → α i → α (i + 1)):
-  (m n : Nat) → DVec α m → DVec α n → DVec α (m + n)
+def DTerm.shiftRight {Ty : Type} {i : Nat} {j} : DTerm Ty i → DTerm Ty (i + j)
+| .type t => .type t
+| .var q => .var (q + j)
+| .app T₁ T₂ => .app T₁ T₂
+
+def DVec.append {α : Nat → Type} (shift : {i j : Nat} → α i → α (i + j)):
+  {m n : Nat} → DVec α m → DVec α n → DVec α (m + n)
   | m, 0, ys, DVec.nil => cast (by simp) ys
-  | m, n + 1, xs, DVec.push ys y => sorry
+  | m, n + 1, xs, DVec.push ys y =>
+    (DVec.append @shift xs ys).push (cast (by rw [Nat.add_comm]) (shift (j := m) y))
 
-    -- DVec.push (DVec.append shift xs ys) sorry
-
-instance {α : Nat → Type} : Append (DList α) := sorry
-
-theorem DList.cons_size {α : Nat → Type} (A B : DList α) : (A ++ B).1 = A.1 + B.1 := sorry
+def DList.append {α : Nat → Type} (shift : {i j : Nat} → α i → α (i + j)) :
+    DList α → DList α → DList α :=
+  fun ⟨_, xs⟩ ⟨_, ys⟩ => ⟨_, DVec.append @shift xs ys⟩
 
 /-
   `(Γ : DContext Ty)` is a dependtly typed context over a quoted type universe `Ty`
   a context is a list of terms where each term is either a type or a variable references one of the terms occuring before it in the context
 -/
 abbrev DContext (Ty : Type) := DList (fun i => DTerm Ty i)
+
+instance {Ty : Type} : Append (DContext Ty) := ⟨DList.append DTerm.shiftRight⟩
+
+theorem DContext.cons_size {Ty : Type} (A B : DContext Ty) : (A ++ B).1 = A.1 + B.1 := sorry
 
 /--
   adds DTerm to start of context
@@ -94,10 +102,9 @@ def DContext.get' {n : Nat} {Ty : Type} (l : DContext Ty) (i : Fin l.1) : DTerm 
 
 inductive WompWompLam (Ty : Type) (rules : List ((Γ : DContext Ty) × (DTerm Ty Γ.1))) : (Γ : DContext Ty) → (T : DTerm Ty Γ.1) → Type where
 | intro (ruleIdx : Fin rules.length) : WompWompLam Ty rules (rules.get ruleIdx).1 (rules.get ruleIdx).2
-| cut (Γ' Γ : DContext Ty) (α : Ty) (T : DTerm Ty Γ.1) (a : WompWompLam Ty rules Γ' (DTerm.type α)) : (t : WompWompLam Ty rules ((DTerm.type α):::Γ) T.shift) → WompWompLam Ty rules (Γ' ++ Γ) (cast (by {
-  congr
-  rw [DList.cons_size, Nat.add_comm]
-}) (T.shift (j := Γ'.1)))
+| cut (Γ' Γ : DContext Ty) (α : Ty) (T : DTerm Ty Γ.1) (a : WompWompLam Ty rules Γ' (DTerm.type α)) : (t : WompWompLam Ty rules ((DTerm.type α):::Γ) T.lift) → WompWompLam Ty rules (Γ' ++ Γ) (cast (by {
+  rw [DContext.cons_size, Nat.add_comm]
+}) (T.shiftRight (j := Γ'.1)))
 | var (Γ : DContext Ty) (i : Fin Γ.1) : WompWompLam Ty rules Γ (Γ.get' i)
 
 
@@ -105,10 +112,9 @@ class Unquote (Ty : Type) (rules : List ((Γ : DContext Ty) × DTerm Ty Γ.1)) w
   -- `interpret t` returns Type describing the smenatics of quoted type `t : Ty`
   interpret : (Γ : DContext Ty) → DTerm Ty Γ.1 → Type
   unquote_intro (ruleIdx : Fin rules.length) : interpret (rules.get ruleIdx).1 (rules.get ruleIdx).2
-  unquote_cut (Γ' Γ : DContext Ty) (α : Ty) (T : DTerm Ty Γ.1) (a : interpret Γ' (DTerm.type α)) (t : interpret (DTerm.type α:::Γ) T.shift) : interpret (Γ' ++ Γ) (cast (by {
-  congr
-  rw [DList.cons_size, Nat.add_comm]
-}) (T.shift (j := Γ'.1)))
+  unquote_cut (Γ' Γ : DContext Ty) (α : Ty) (T : DTerm Ty Γ.1) (a : interpret Γ' (DTerm.type α)) (t : interpret (DTerm.type α:::Γ) T.lift) : interpret (Γ' ++ Γ) (cast (by {
+  rw [DContext.cons_size, Nat.add_comm]
+}) (T.shiftRight (j := Γ'.1)))
 
 def nestedVarLam
   {Ty : Type} {rules : List ((Γ : DContext Ty) × DTerm Ty Γ.1)} [Unquote Ty rules]
@@ -125,6 +131,6 @@ def WompWompLam.unquote
   U.unquote_intro ruleIdx
 | _, _, WompWompLam.cut Γ' Γ'' α T a t =>
   let ua := WompWompLam.unquote Γ' (DTerm.type α) a
-  let ut := WompWompLam.unquote (DTerm.type α ::: Γ'') T.shift t
+  let ut := WompWompLam.unquote (DTerm.type α ::: Γ'') T.lift t
   U.unquote_cut Γ' Γ'' α T ua ut
 | _, _, WompWompLam.var Γ i => nestedVarLam Γ i
