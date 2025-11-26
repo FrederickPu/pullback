@@ -7,7 +7,27 @@ inductive DVec (α : Nat → Type) : Nat → Type
   | nil : DVec α 0
   | push {n : Nat} : DVec α n → α n → DVec α (n + 1)
 
-def DVec.cons {α : Nat → Type} : α 0 → DVec α n → DVec α (n + 1) := sorry
+def DVec.cons {n : Nat} {α : Nat → Type}
+  (shift : {i : Nat} → α i → α (i + 1))
+  (a0 : α 0)
+    : DVec α n → DVec α (n + 1)
+  | nil           => push nil a0
+  | push tail x   => push (DVec.cons shift a0 tail) (shift x)
+
+/-- Get the `i`-th element of a dependent vector. -/
+def DVec.get {α : Nat → Type} : {n : Nat} → DVec α n → (i : Fin n) → α i
+| 0, DVec.nil, i =>
+  False.elim <| Nat.not_lt_zero i i.isLt
+| n + 1, DVec.push v a, i =>
+  if h : i.val < n then
+    DVec.get v ⟨i.val, h⟩
+  else
+    have : i.val = n := by
+      rw [Nat.not_lt] at h
+      exact Nat.eq_of_le_of_lt_succ h i.isLt
+    cast (by {
+      rw [this]
+    }) a
 
 /-
   dependently typed list
@@ -18,21 +38,28 @@ abbrev DList (α : Nat → Type) := Sigma (fun (n : Nat) => DVec α n)
   The dependently typed list whose first element is `head`, where `tail` is the rest of the list.
   Usually written `head ::: tail`.
 -/
-def DList.cons {α : Nat → Type} : α 0 → DList α → DList α :=
-  fun a l => ⟨_, DVec.cons a l.2⟩
+def DList.cons {α : Nat → Type} (shift : {i : Nat} → α i → α (i + 1)) : α 0 → DList α → DList α :=
+  fun a l => ⟨_, DVec.cons shift a l.2⟩
 
-@[inherit_doc] infixr:67 " ::: " => DList.cons
-
-def DList.get {α : Nat → Type} {n : Nat} (l : DList α) (i : Fin n) : α i := sorry
-
-def DList.get' {α : Nat → Type} {n : Nat} (l : DList α) (i : Fin n) : α n := sorry
+def DList.get {α : Nat → Type} (l : DList α) (i : Fin l.1) : α i :=
+  l.2.get i
 
 inductive DTerm (Ty : Type) (i : Nat) where
 | type (t : Ty)
 | var (i : Nat)
 | app (T₁ T₂ : Ty)
 
-def DTerm.shift {Ty : Type} {i : Nat} {j} : DTerm Ty i → DTerm Ty (i + j) := sorry
+def DTerm.shift {Ty : Type} {i : Nat} {j} : DTerm Ty i → DTerm Ty (i + j)
+| .type t => .type t
+| .var i => .var i
+| .app T₁ T₂ => .app T₁ T₂
+
+def DVec.append {α : Nat → Type} (shift : {i : Nat} → α i → α (i + 1)):
+  (m n : Nat) → DVec α m → DVec α n → DVec α (m + n)
+  | m, 0, ys, DVec.nil => cast (by simp) ys
+  | m, n + 1, xs, DVec.push ys y => sorry
+
+    -- DVec.push (DVec.append shift xs ys) sorry
 
 instance {α : Nat → Type} : Append (DList α) := sorry
 
@@ -43,6 +70,27 @@ theorem DList.cons_size {α : Nat → Type} (A B : DList α) : (A ++ B).1 = A.1 
   a context is a list of terms where each term is either a type or a variable references one of the terms occuring before it in the context
 -/
 abbrev DContext (Ty : Type) := DList (fun i => DTerm Ty i)
+
+/--
+  adds DTerm to start of context
+  usually written as `a:::l`
+-/
+def DContext.cons {Ty : Type} (a : DTerm Ty 0)  (l : DContext Ty) : DContext Ty :=
+  DList.cons (fun t =>
+    match t with
+    | .type t => .type t
+    | .var i => .var (i + 1)
+    | .app T₁ T₂ => .app T₁ T₂
+  ) a l
+
+def DContext.get' {n : Nat} {Ty : Type} (l : DContext Ty) (i : Fin l.1) : DTerm Ty n :=
+  match l.2.get i with
+  | .type t => .type t
+  | .var i => .var (i + 1)
+  | .app T₁ T₂ => .app T₁ T₂
+
+
+@[inherit_doc] infixr:67 " ::: " => DContext.cons
 
 inductive WompWompLam (Ty : Type) (rules : List ((Γ : DContext Ty) × (DTerm Ty Γ.1))) : (Γ : DContext Ty) → (T : DTerm Ty Γ.1) → Type where
 | intro (ruleIdx : Fin rules.length) : WompWompLam Ty rules (rules.get ruleIdx).1 (rules.get ruleIdx).2
