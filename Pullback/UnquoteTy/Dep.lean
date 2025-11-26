@@ -77,7 +77,10 @@ abbrev DContext (Ty : Type) := DList (fun i => DTerm Ty i)
 
 instance {Ty : Type} : Append (DContext Ty) := ⟨DList.append DTerm.shiftRight⟩
 
-theorem DContext.cons_size {Ty : Type} (A B : DContext Ty) : (A ++ B).1 = A.1 + B.1 := sorry
+theorem DContext.cons_size {Ty : Type} : (A B : DContext Ty) → (A ++ B).1 = A.1 + B.1
+| ⟨_, xs⟩, ⟨_, ys⟩ => by
+  simp only [HAppend.hAppend, Append.append]
+  rw [DList.append]
 
 /--
   adds DTerm to start of context
