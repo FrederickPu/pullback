@@ -43,26 +43,32 @@ def DList.cons {α : Nat → Type} (shift : {i : Nat} → α i → α (i + 1)) :
 def DList.get {α : Nat → Type} (l : DList α) (i : Fin l.1) : α i :=
   l.2.get i
 
-inductive DTerm (Ty : Type) (i : Nat) where
-| type (t : Ty)
-| var (i : Fin i)
-| app (T₁ T₂ : Ty)
+inductive DTerm (Ty : Type) (vars : Nat) : Type
+| type (t : Ty) : DTerm Ty vars
+| var (i : Fin vars) : DTerm Ty vars
+| app (T₁ T₂ : Ty) : DTerm Ty vars
+| pi (T₁ T₂ : Ty) : DTerm Ty vars
 
 def DTerm.lift {Ty : Type} {i : Nat} {j} : DTerm Ty i → DTerm Ty (i + j)
 | .type t => .type t
 | .var q => .var ⟨q, Nat.lt_add_right j q.isLt⟩
 | .app T₁ T₂ => .app T₁ T₂
+| .pi T₁ T₂ => .app T₁ T₂
 
 def DTerm.shiftRight {Ty : Type} {i : Nat} {j} : DTerm Ty i → DTerm Ty (i + j)
 | .type t => .type t
 | .var q => .var ⟨q + j, Nat.add_lt_add_right q.isLt j⟩
 | .app T₁ T₂ => .app T₁ T₂
+| .pi T₁ T₂ => .pi T₁ T₂
 
 def DVec.append {α : Nat → Type} (shift : {i j : Nat} → α i → α (i + j)):
   {m n : Nat} → DVec α m → DVec α n → DVec α (m + n)
   | m, 0, ys, DVec.nil => cast (by simp) ys
   | m, n + 1, xs, DVec.push ys y =>
     (DVec.append @shift xs ys).push (cast (by rw [Nat.add_comm]) (shift (j := m) y))
+
+def DList.push {α : Nat → Type} (l : DList α) (a : α l.1) : DList α :=
+  ⟨_, l.2.push a⟩
 
 def DList.append {α : Nat → Type} (shift : {i j : Nat} → α i → α (i + j)) :
     DList α → DList α → DList α :=
@@ -91,6 +97,7 @@ def DContext.cons {Ty : Type} (a : DTerm Ty 0)  (l : DContext Ty) : DContext Ty 
     | .type t => .type t
     | .var q => .var ⟨q + 1, Nat.add_lt_add_right q.isLt 1⟩
     | .app T₁ T₂ => .app T₁ T₂
+    | .pi T₁ T₂ => .pi T₁ T₂
   ) a l
 
 def DContext.get' {Ty : Type} (l : DContext Ty) (i : Fin l.1) : DTerm Ty l.1 :=
@@ -98,6 +105,7 @@ def DContext.get' {Ty : Type} (l : DContext Ty) (i : Fin l.1) : DTerm Ty l.1 :=
   | .type t => .type t
   | .var q => .var ⟨q, Nat.lt_trans q.isLt i.isLt⟩
   | .app T₁ T₂ => .app T₁ T₂
+  | .pi T₁ T₂ => .pi T₁ T₂
 
 open Lean
 macro_rules
@@ -124,6 +132,8 @@ inductive WompWompLam (Ty : Type) (rules : List ((Γ : DContext Ty) × (DTerm Ty
   rw [DContext.size_append, Nat.add_comm]
 }) (T.shiftRight (j := Γ'.1)))
 | var (Γ : DContext Ty) (i : Fin Γ.1) : WompWompLam Ty rules Γ (Γ.get' i)
+/-- simple pi types: pi types where the return type isn't depenedent on the input type -/
+| pi (Γ : DContext Ty) (α T : Ty) (f : WompWompLam Ty rules (Γ.push (.type α)) (.type T)) : WompWompLam Ty rules ⟨_, []⟩ (.pi α T)
 
 
 class Unquote (Ty : Type) (rules : List ((Γ : DContext Ty) × DTerm Ty Γ.1)) where
@@ -156,3 +166,4 @@ def WompWompLam.unquote
   let ut := WompWompLam.unquote (DTerm.type α ::: Γ'') T.lift t
   U.unquote_cut Γ' Γ'' α T ua ut
 | _, _, WompWompLam.var Γ i => nestedVarLam Γ i
+| _, _, WompWompLam.pi Γ α β f => sorry
