@@ -126,14 +126,14 @@ macro_rules
 
 @[inherit_doc] infixr:67 " ::: " => DContext.cons
 
-inductive WompWompLam (Ty : Type) (rules : List ((Γ : DContext Ty) × (DTerm Ty Γ.1))) : (Γ : DContext Ty) → (T : DTerm Ty Γ.1) → Type where
-| intro (ruleIdx : Fin rules.length) : WompWompLam Ty rules (rules.get ruleIdx).1 (rules.get ruleIdx).2
-| cut (Γ' Γ : DContext Ty) (α : Ty) (T : DTerm Ty Γ.1) (a : WompWompLam Ty rules Γ' (DTerm.type α)) : (t : WompWompLam Ty rules ((DTerm.type α):::Γ) T.lift) → WompWompLam Ty rules (Γ' ++ Γ) (cast (by {
+inductive QExpr (Ty : Type) (rules : List ((Γ : DContext Ty) × (DTerm Ty Γ.1))) : (Γ : DContext Ty) → (T : DTerm Ty Γ.1) → Type where
+| intro (ruleIdx : Fin rules.length) : QExpr Ty rules (rules.get ruleIdx).1 (rules.get ruleIdx).2
+| cut (Γ' Γ : DContext Ty) (α : Ty) (T : DTerm Ty Γ.1) (a : QExpr Ty rules Γ' (DTerm.type α)) : (t : QExpr Ty rules ((DTerm.type α):::Γ) T.lift) → QExpr Ty rules (Γ' ++ Γ) (cast (by {
   rw [DContext.size_append, Nat.add_comm]
 }) (T.shiftRight (j := Γ'.1)))
-| var (Γ : DContext Ty) (i : Fin Γ.1) : WompWompLam Ty rules Γ (Γ.get' i)
+| var (Γ : DContext Ty) (i : Fin Γ.1) : QExpr Ty rules Γ (Γ.get' i)
 /-- simple pi types: pi types where the return type isn't depenedent on the input type -/
-| pi (Γ : DContext Ty) (α T : Ty) (f : WompWompLam Ty rules (Γ.push (.type α)) (.type T)) : WompWompLam Ty rules Γ (.pi α T)
+| pi (Γ : DContext Ty) (α T : Ty) (f : QExpr Ty rules (Γ.push (.type α)) (.type T)) : QExpr Ty rules Γ (.pi α T)
 
 
 class Unquote (Ty : Type) (rules : List ((Γ : DContext Ty) × DTerm Ty Γ.1)) where
@@ -149,16 +149,16 @@ class Unquote (Ty : Type) (rules : List ((Γ : DContext Ty) × DTerm Ty Γ.1)) w
   pi (Γ : DContext Ty) (α T : Ty) (f : interpret (Γ.push (.type α)) (.type T)) : interpret Γ (.pi α T)
 
 
-def WompWompLam.unquote
+def QExpr.unquote
   {Ty : Type} {rules : List ((Γ : DContext Ty) × DTerm Ty Γ.1)}
   [Unquote Ty rules]
-  : (Γ : DContext Ty) → (T : DTerm Ty Γ.1) → WompWompLam Ty rules Γ T →
+  : (Γ : DContext Ty) → (T : DTerm Ty Γ.1) → QExpr Ty rules Γ T →
       Unquote.interpret rules Γ T
-| _, _, WompWompLam.intro ruleIdx =>
+| _, _, QExpr.intro ruleIdx =>
   Unquote.intro ruleIdx
-| _, _, WompWompLam.cut Γ' Γ'' α T a t =>
-  let ua := WompWompLam.unquote Γ' (DTerm.type α) a
-  let ut := WompWompLam.unquote (DTerm.type α ::: Γ'') T.lift t
+| _, _, QExpr.cut Γ' Γ'' α T a t =>
+  let ua := QExpr.unquote Γ' (DTerm.type α) a
+  let ut := QExpr.unquote (DTerm.type α ::: Γ'') T.lift t
   Unquote.cut Γ' Γ'' α T ua ut
-| _, _, WompWompLam.var Γ i => Unquote.var Γ i
-| _, _, WompWompLam.pi Γ α β f => Unquote.pi Γ α β (WompWompLam.unquote (Γ.push (.type α)) (.type β) f)
+| _, _, QExpr.var Γ i => Unquote.var Γ i
+| _, _, QExpr.pi Γ α β f => Unquote.pi Γ α β (QExpr.unquote (Γ.push (.type α)) (.type β) f)
