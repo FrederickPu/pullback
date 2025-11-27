@@ -133,7 +133,7 @@ inductive WompWompLam (Ty : Type) (rules : List ((Γ : DContext Ty) × (DTerm Ty
 }) (T.shiftRight (j := Γ'.1)))
 | var (Γ : DContext Ty) (i : Fin Γ.1) : WompWompLam Ty rules Γ (Γ.get' i)
 /-- simple pi types: pi types where the return type isn't depenedent on the input type -/
-| pi (Γ : DContext Ty) (α T : Ty) (f : WompWompLam Ty rules (Γ.push (.type α)) (.type T)) : WompWompLam Ty rules ⟨_, []⟩ (.pi α T)
+| pi (Γ : DContext Ty) (α T : Ty) (f : WompWompLam Ty rules (Γ.push (.type α)) (.type T)) : WompWompLam Ty rules Γ (.pi α T)
 
 
 class Unquote (Ty : Type) (rules : List ((Γ : DContext Ty) × DTerm Ty Γ.1)) where
@@ -141,17 +141,11 @@ class Unquote (Ty : Type) (rules : List ((Γ : DContext Ty) × DTerm Ty Γ.1)) w
   interpret : (Γ : DContext Ty) → DTerm Ty Γ.1 → Type
   unquote_intro (ruleIdx : Fin rules.length) : interpret (rules.get ruleIdx).1 (rules.get ruleIdx).2
   unquote_cut (Γ' Γ : DContext Ty) (α : Ty) (T : DTerm Ty Γ.1) (a : interpret Γ' (DTerm.type α)) (t : interpret (DTerm.type α:::Γ) T.lift) : interpret (Γ' ++ Γ) (cast (by {
-  rw [DContext.size_append, Nat.add_comm]
-}) (T.shiftRight (j := Γ'.1)))
-
-
-def nestedVarLam
-  {Ty : Type} {rules : List ((Γ : DContext Ty) × DTerm Ty Γ.1)} [Unquote Ty rules]
-  : (Γ : DContext Ty) → (i : Fin Γ.1) →
-    Unquote.interpret rules Γ (Γ.get' i) := sorry
-  -- | ⟨0, Γ⟩, i => nomatch i
-  -- | ⟨n + 1, Γ⟩, ⟨i + 1, hi⟩ =>
-  --   fun x : (Unquote.interpret _ ⟨_, DVec.nil⟩ (DTerm.type (DVec.car Γ))) => nestedVarLam ⟨_, DVec.cdr Γ⟩ i
+      rw [DContext.size_append, Nat.add_comm]
+    }) (T.shiftRight (j := Γ'.1)))
+  unquote_var : (Γ : DContext Ty) → (i : Fin Γ.1) →
+    interpret Γ (Γ.get' i)
+  unquote_pi (Γ : DContext Ty) (α T : Ty) (f : interpret (Γ.push (.type α)) (.type T)) : interpret Γ (.pi α T)
 
 
 def WompWompLam.unquote
@@ -165,5 +159,5 @@ def WompWompLam.unquote
   let ua := WompWompLam.unquote Γ' (DTerm.type α) a
   let ut := WompWompLam.unquote (DTerm.type α ::: Γ'') T.lift t
   U.unquote_cut Γ' Γ'' α T ua ut
-| _, _, WompWompLam.var Γ i => nestedVarLam Γ i
-| _, _, WompWompLam.pi Γ α β f => sorry
+| _, _, WompWompLam.var Γ i => Unquote.unquote_var Γ i
+| _, _, WompWompLam.pi Γ α β f => Unquote.unquote_pi Γ α β (WompWompLam.unquote (Γ.push (.type α)) (.type β) f)
