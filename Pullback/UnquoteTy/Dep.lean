@@ -139,25 +139,26 @@ inductive WompWompLam (Ty : Type) (rules : List ((Γ : DContext Ty) × (DTerm Ty
 class Unquote (Ty : Type) (rules : List ((Γ : DContext Ty) × DTerm Ty Γ.1)) where
   -- `interpret t` returns Type describing the smenatics of quoted type `t : Ty`
   interpret : (Γ : DContext Ty) → DTerm Ty Γ.1 → Type
-  unquote_intro (ruleIdx : Fin rules.length) : interpret (rules.get ruleIdx).1 (rules.get ruleIdx).2
-  unquote_cut (Γ' Γ : DContext Ty) (α : Ty) (T : DTerm Ty Γ.1) (a : interpret Γ' (DTerm.type α)) (t : interpret (DTerm.type α:::Γ) T.lift) : interpret (Γ' ++ Γ) (cast (by {
+  /- rules for ensuring interpret is well formed -/
+  intro (ruleIdx : Fin rules.length) : interpret (rules.get ruleIdx).1 (rules.get ruleIdx).2
+  cut (Γ' Γ : DContext Ty) (α : Ty) (T : DTerm Ty Γ.1) (a : interpret Γ' (DTerm.type α)) (t : interpret (DTerm.type α:::Γ) T.lift) : interpret (Γ' ++ Γ) (cast (by {
       rw [DContext.size_append, Nat.add_comm]
     }) (T.shiftRight (j := Γ'.1)))
-  unquote_var : (Γ : DContext Ty) → (i : Fin Γ.1) →
+  var : (Γ : DContext Ty) → (i : Fin Γ.1) →
     interpret Γ (Γ.get' i)
-  unquote_pi (Γ : DContext Ty) (α T : Ty) (f : interpret (Γ.push (.type α)) (.type T)) : interpret Γ (.pi α T)
+  pi (Γ : DContext Ty) (α T : Ty) (f : interpret (Γ.push (.type α)) (.type T)) : interpret Γ (.pi α T)
 
 
 def WompWompLam.unquote
   {Ty : Type} {rules : List ((Γ : DContext Ty) × DTerm Ty Γ.1)}
-  [U : Unquote Ty rules]
+  [Unquote Ty rules]
   : (Γ : DContext Ty) → (T : DTerm Ty Γ.1) → WompWompLam Ty rules Γ T →
       Unquote.interpret rules Γ T
 | _, _, WompWompLam.intro ruleIdx =>
-  U.unquote_intro ruleIdx
+  Unquote.intro ruleIdx
 | _, _, WompWompLam.cut Γ' Γ'' α T a t =>
   let ua := WompWompLam.unquote Γ' (DTerm.type α) a
   let ut := WompWompLam.unquote (DTerm.type α ::: Γ'') T.lift t
-  U.unquote_cut Γ' Γ'' α T ua ut
-| _, _, WompWompLam.var Γ i => Unquote.unquote_var Γ i
-| _, _, WompWompLam.pi Γ α β f => Unquote.unquote_pi Γ α β (WompWompLam.unquote (Γ.push (.type α)) (.type β) f)
+  Unquote.cut Γ' Γ'' α T ua ut
+| _, _, WompWompLam.var Γ i => Unquote.var Γ i
+| _, _, WompWompLam.pi Γ α β f => Unquote.pi Γ α β (WompWompLam.unquote (Γ.push (.type α)) (.type β) f)
