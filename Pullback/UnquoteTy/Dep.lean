@@ -46,19 +46,19 @@ def DList.get {α : Nat → Type} (l : DList α) (i : Fin l.1) : α i :=
 inductive DTerm (Ty : Type) (vars : Nat) : Type
 | type (t : Ty) : DTerm Ty vars
 | var (i : Fin vars) : DTerm Ty vars
-| app (T₁ T₂ : Ty) : DTerm Ty vars
+| app (T₁ T₂ : DTerm Ty vars) : DTerm Ty vars
 | pi (T₁ T₂ : Ty) : DTerm Ty vars
 
 def DTerm.lift {Ty : Type} {i : Nat} {j} : DTerm Ty i → DTerm Ty (i + j)
 | .type t => .type t
 | .var q => .var ⟨q, Nat.lt_add_right j q.isLt⟩
-| .app T₁ T₂ => .app T₁ T₂
-| .pi T₁ T₂ => .app T₁ T₂
+| .app T₁ T₂ => .app T₁.lift T₂.lift
+| .pi T₁ T₂ => .pi T₁ T₂
 
 def DTerm.shiftRight {Ty : Type} {i : Nat} {j} : DTerm Ty i → DTerm Ty (i + j)
 | .type t => .type t
 | .var q => .var ⟨q + j, Nat.add_lt_add_right q.isLt j⟩
-| .app T₁ T₂ => .app T₁ T₂
+| .app T₁ T₂ => .app T₁.shiftRight T₂.shiftRight
 | .pi T₁ T₂ => .pi T₁ T₂
 
 def DVec.append {α : Nat → Type} (shift : {i j : Nat} → α i → α (i + j)):
@@ -96,20 +96,18 @@ def DContext.cons {Ty : Type} (a : DTerm Ty 0)  (l : DContext Ty) : DContext Ty 
     match t with
     | .type t => .type t
     | .var q => .var ⟨q + 1, Nat.add_lt_add_right q.isLt 1⟩
-    | .app T₁ T₂ => .app T₁ T₂
+    | .app T₁ T₂ => .app T₁.shiftRight T₂.shiftRight
     | .pi T₁ T₂ => .pi T₁ T₂
   ) a l
 
 def DContext.get' {Ty : Type} (l : DContext Ty) (i : Fin l.1) : DTerm Ty l.1 :=
-  match l.2.get i with
-  | .type t => .type t
-  | .var q => .var ⟨q, Nat.lt_trans q.isLt i.isLt⟩
-  | .app T₁ T₂ => .app T₁ T₂
-  | .pi T₁ T₂ => .pi T₁ T₂
+  cast (by
+    rw [Nat.add_comm, Nat.sub_add_cancel Fin.is_le']
+  ) ((l.2.get i).lift (j := l.1 - i))
 
 open Lean
 macro_rules
-  | `([ $elems,* ]) => do
+  | `(-[ $elems,* ]) => do
     let rec expand (i : Nat) (acc : TSyntax `term) : MacroM Syntax := do
       if h : i < elems.getElems.size then
         let elem := ⟨elems.getElems[i]⟩
@@ -121,7 +119,7 @@ macro_rules
 
 -- this works
 #check fun {Ty : Type} (T : Ty)=> ((DVec.nil.push (DTerm.type T)).push (DTerm.type T): DVec (DTerm Ty) 2)
-#check fun {Ty : Type} (T : Ty)=> ([DTerm.type T, DTerm.var 0]: DVec (DTerm Ty) 2)
+#check fun {Ty : Type} (T : Ty)=> (-[DTerm.type T, DTerm.var 0]: DVec (DTerm Ty) 2)
 
 
 @[inherit_doc] infixr:67 " ::: " => DContext.cons
@@ -162,3 +160,21 @@ def QExpr.unquote
   Unquote.cut Γ' Γ'' α T ua ut
 | _, _, QExpr.var Γ i => Unquote.var Γ i
 | _, _, QExpr.pi Γ α β f => Unquote.pi Γ α β (QExpr.unquote (Γ.push (.type α)) (.type β) f)
+
+inductive Ty
+| nat
+| prop
+| signature
+
+#check (
+  [
+    ⟨(⟨_, -[]⟩ : DContext Ty), DTerm.type Ty.nat⟩, -- 0
+    ⟨(⟨_, -[.type Ty.nat]⟩ : DContext Ty), DTerm.type Ty.nat⟩, -- succ
+    ⟨(⟨_, -[.type Ty.nat, .type Ty.nat]⟩ : DContext Ty), DTerm.type Ty.prop⟩, -- eq
+    ⟨(⟨_, -[.type Ty.prop, .type Ty.prop]⟩ : DContext Ty), DTerm.type Ty.prop⟩, -- and
+    ⟨(⟨_, -[.type Ty.prop, .type Ty.prop]⟩ : DContext Ty), DTerm.type Ty.prop⟩, -- or
+    ⟨(⟨_, -[.pi Ty.nat Ty.prop]⟩ : DContext Ty), DTerm.type Ty.prop⟩, -- forall
+    ⟨(⟨_, -[.pi Ty.nat Ty.prop, .type Ty.nat, DTerm.app (DTerm.var 0) (DTerm.var 1)]⟩ : DContext Ty), DTerm.app (DTerm.type Ty.signature) (DTerm.var 0)⟩, -- signature (subtype) `{p : nat -> prop} (n : nat) (pn : p n) |- signature p`
+    ⟨(⟨_, -[.pi Ty.nat Ty.prop, .pi Ty.nat Ty.prop, .app (.type Ty.signature) (.var 0), .app (.type Ty.nat) (.app (.type Ty.signature) (.var 1))]⟩ : DContext Ty), DTerm.type Ty.signature⟩ -- bind `{p q : nat -> prop} (n : signature p) (f : nat -> signature q) |- signature q `
+  ]
+: List ((Γ : DContext Ty) × DTerm Ty Γ.1))
