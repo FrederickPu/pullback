@@ -5,6 +5,7 @@ open Lean
 inductive SSABaseType where
 | float : SSABaseType
 | int : SSABaseType
+| unit : SSABaseType
 
 inductive SSAType where
 | ofBase : SSABaseType → SSAType
@@ -21,7 +22,9 @@ inductive SSAExpr where
 | var (name : Name) : SSAExpr
 | const : SSAConst → SSAExpr
 | app (f : SSAExpr) (arg : SSAExpr)
-| lam (var : Name) (body : SSAExpr) : SSAExpr
+| lam (var : Name) (varType : SSAType) (body : SSAExpr) : SSAExpr
+| prod (α : SSAType) (β : SSAType): SSAExpr → SSAExpr → SSAExpr
+deriving Inhabited
 
 inductive SSADo where
 | expr : SSAExpr → SSADo
@@ -29,37 +32,57 @@ inductive SSADo where
 | letE (var : Name) (val : SSAExpr) (body : SSADo) : SSADo
 | letM (var : Name) (val : SSAExpr) (body : SSADo) : SSADo -- let mut
 | assign (var : Name) (val : SSAExpr) (body : SSADo) : SSADo
-| loop (body : SSADo) : SSADo
+| loop (body : SSADo) (rest : SSADo) : SSADo
 | break : SSADo
 | continue : SSADo
 | return (out : SSAExpr) : SSADo
 
 #check Std.HashMap.insert
 
+#check Std.TreeMap
+
+#eval (((Std.HashMap.empty : Std.HashMap Name Int).insert `b 123).insert `a 456).keys
+
+
 def SSAExpr.inferType : SSAExpr → SSAType := sorry
 
-def SSADo.toSSAExpr (mutVars : Std.HashMap Name SSAType) (kbreak kcontinue : Option Name) (kreturn : SSAExpr) : SSADo → SSAExpr
+def VarMap := Array (Name × SSAType)
+
+def mkMutTuple (mutVars : VarMap) : SSAExpr × SSAType := sorry
+
+def destructMutTuple (mutVars : VarMap) (body : SSADo) : SSADo := sorry
+
+/-
+    for fixed mutVars, if baseName1 and baseName2 don't share a prefix then freshName will give different fresh names.
+-/
+def freshName (mutVars : VarMap) (baseName : Name) : Name := sorry
+
+partial def SSADo.toSSAExpr (mutVars : VarMap) (kbreak kcontinue : Option Name) : SSADo → SSAExpr
 | expr e => e
-| seq s₁ s₂ => SSAExpr.letE `x (s₁.toSSAExpr mutVars kbreak kcontinue kreturn) (s₂.toSSAExpr mutVars kbreak kcontinue kreturn)
-| letE var val body => SSAExpr.letE var val (body.toSSAExpr mutVars kbreak kcontinue kreturn)
-| letM var val body => SSAExpr.letE var val (body.toSSAExpr (mutVars.insert var val.inferType) kbreak kcontinue kreturn)
-| assign var val body => SSAExpr.letE var val (body.toSSAExpr mutVars kbreak kcontinue kreturn)
-| loop body =>
-    let (body', mutTupleType) : SSAExpr × SSAType := sorry -- turn body into function that returns all mut vars at end (in big tuple) (this portion should handle break, continue)
-    let nKBreak : Name := sorry -- get fresh name
-    let nKContinue : Name := sorry -- get fresh name
-    SSAExpr.app (SSAExpr.const (SSAConst.loop mutTupleType)) (SSAExpr.lam nKBreak (SSAExpr.lam nKContinue body'))
+| seq s₁ s₂ => SSAExpr.letE `x (s₁.toSSAExpr mutVars kbreak kcontinue) (s₂.toSSAExpr mutVars kbreak kcontinue)
+| letE var val body => SSAExpr.letE var val (body.toSSAExpr mutVars kbreak kcontinue)
+| letM var val body => SSAExpr.letE var val (body.toSSAExpr (mutVars.push (var, val.inferType)) kbreak kcontinue)
+| assign var val body => SSAExpr.letE var val (body.toSSAExpr mutVars kbreak kcontinue)
+| loop body rest =>
+    let (mutTuple, mutTupleType) := (mkMutTuple mutVars)
+    let bodyMutVars : VarMap := sorry
+    let nS : Name := freshName (Array.append mutVars bodyMutVars) `s
+    let breakNew : SSAExpr := SSAExpr.lam nS mutTupleType <| (destructMutTuple mutVars rest).toSSAExpr mutVars kbreak kcontinue
+    let nKBreak : Name := freshName mutVars `kbreak
+    let nKContinue : Name := freshName mutVars `kcontinue
+    let body' : SSAExpr := (SSADo.seq (destructMutTuple mutVars body) (.expr mutTuple)).toSSAExpr mutVars nKBreak nKContinue
+    SSAExpr.letE nKBreak breakNew <|
+        SSAExpr.app (SSAExpr.app (SSAExpr.const (SSAConst.loop mutTupleType)) (SSAExpr.lam nKContinue (SSAType.fun mutTupleType (SSAType.ofBase .unit)) (SSAExpr.lam nS mutTupleType body'))) mutTuple
 | .break =>
     match kbreak with
     | some kbreak =>
-        let mutTuple : SSAExpr := sorry
+        let mutTuple : SSAExpr := (mkMutTuple mutVars).1
         SSAExpr.app (SSAExpr.var kbreak) mutTuple
     | none => sorry -- violates grammer
 | .continue =>
     match kcontinue with
     | some kcontinue =>
-        let mutTuple : SSAExpr := sorry
+        let mutTuple : SSAExpr := (mkMutTuple mutVars).1
         SSAExpr.app (SSAExpr.var kcontinue) mutTuple
     | none => sorry -- violates grammer
-| .return out =>
-    SSAExpr.app kreturn out
+| .return out => out
