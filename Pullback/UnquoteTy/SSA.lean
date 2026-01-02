@@ -66,11 +66,16 @@ partial def SSADo.toSSAExpr (mutVars : VarMap) (kbreak kcontinue : Option Name) 
 | loop body rest =>
     let (mutTuple, mutTupleType) := (mkMutTuple mutVars)
     let bodyMutVars : VarMap := sorry
+    let trailingReturn : Bool := sorry -- using body
     let nS : Name := freshName (Array.append mutVars bodyMutVars) `s
     let breakNew : SSAExpr := SSAExpr.lam nS mutTupleType <| (destructMutTuple mutVars rest).toSSAExpr mutVars kbreak kcontinue
     let nKBreak : Name := freshName mutVars `kbreak
     let nKContinue : Name := freshName mutVars `kcontinue
-    let body' : SSAExpr := (SSADo.seq (destructMutTuple mutVars body) (.expr mutTuple)).toSSAExpr mutVars nKBreak nKContinue
+    let body' : SSAExpr :=
+        if trailingReturn then
+            destructMutTuple mutVars body |>.toSSAExpr mutVars nKBreak nKContinue
+        else
+            (SSADo.seq (destructMutTuple mutVars body) (.expr mutTuple)).toSSAExpr mutVars nKBreak nKContinue
     SSAExpr.letE nKBreak breakNew <|
         SSAExpr.app (SSAExpr.app (SSAExpr.const (SSAConst.loop mutTupleType)) (SSAExpr.lam nKContinue (SSAType.fun mutTupleType (SSAType.ofBase .unit)) (SSAExpr.lam nS mutTupleType body'))) mutTuple
 | .break =>
