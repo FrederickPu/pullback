@@ -15,7 +15,6 @@ inductive SSAType where
 deriving DecidableEq
 
 inductive SSAConst where
-| loop (ty : SSAType) : SSAConst
 | ofFloat : Float → SSAConst
 | ofInt : Int → SSAConst
 | ofUnit : Unit → SSAConst
@@ -26,6 +25,7 @@ inductive SSAExpr where
 | var (name : Name) : SSAExpr
 | app (f : SSAExpr) (arg : SSAExpr)
 | lam (varName : Name) (varType : SSAType) (body : SSAExpr) : SSAExpr
+| loop (ty : SSAType) : SSAExpr
 | prod (α : SSAType) (β : SSAType): SSAExpr → SSAExpr → SSAExpr
 | ifthenelse (cond t e : SSAExpr) : SSAExpr
 deriving Inhabited
@@ -56,14 +56,16 @@ def VarMap.get (map : VarMap) (key : Name) : Option SSAType :=
 def VarMap.insert (map : VarMap) (key : Name) (val : SSAType) : VarMap :=
     if map.any (·.1 = key) then map else map.push (key, val)
 
+def SSAConst.baseType : SSAConst → SSABaseType
+| ofFloat _ => .float
+| ofInt _ => .int
+| ofUnit _ => .unit
+
 /-
     none is returned the input expr doesn't typecheck
 -/
 def SSAExpr.inferType (vars : VarMap): SSAExpr → Option SSAType
-| const (.ofFloat _) => SSAType.ofBase (.float)
-| const (.ofInt _) => SSAType.ofBase (.int)
-| const (.ofUnit _) => SSAType.ofBase (.unit)
-| const (.loop ty) => ty
+| const base => SSAType.ofBase base.baseType
 | letE name val body =>
     (val.inferType vars).bind <|
         fun valType => body.inferType (vars.insert name valType)
@@ -77,6 +79,7 @@ def SSAExpr.inferType (vars : VarMap): SSAExpr → Option SSAType
         | SSAType.fun α β, x  => if α = x then β else none
         | _, _ => none
 | lam _ varType body => body.inferType vars |>.bind (fun bodyType => SSAType.fun varType bodyType)
+| loop ty => ty
 | prod α β _ _ => SSAType.prod α β
 | ifthenelse c t e =>
     c.inferType vars |>.bind
@@ -87,6 +90,15 @@ def SSAExpr.inferType (vars : VarMap): SSAExpr → Option SSAType
     fun eType =>
         if tType == eType then tType else none
 
+def SSABaseType.type : SSABaseType → Type
+| float => Float
+| int => Int
+| unit => Unit
+
+def SSAType.type : SSAType → Type
+| .ofBase baseTy => baseTy.type
+| .fun α β => α.type → β.type
+| prod α β => α.type × β.type
 
 def mkMutTuple (mutVars : VarMap) : SSAExpr × SSAType := sorry
 
