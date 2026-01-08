@@ -132,7 +132,17 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
     }) (ctx.get (cast (by {
         simp only [Array.toList_map, List.length_map, Array.length_toList]
     }) x))
-    | none => sorry
+    | none => by {
+        simp [inferType, VarMap.get] at he
+        have : Array.findLast? (fun x => decide (x.fst = name)) vars = none := by {
+            simp [Array.findLast?, Array.findLastFinIdx?] at *
+            have : (Array.findFinIdx? (fun x => x.fst == name) (Array.reverse vars)) = none := by grind
+            have : Array.find? (fun x => x.fst == name) (Array.reverse vars) = none := by grind
+            simp at this
+            grind
+        }
+        grind
+    }
 | app f arg, he, ctx => (f.interp vars) (arg.interp vars sorry ctx)
 | lam name valType body, he, ctx => cast sorry <|
     fun val : valType.type => cast (by sorry) <| body.interp (vars.push ⟨name, valType⟩) (by sorry) (cast (by simp) <| ctx.push val)
