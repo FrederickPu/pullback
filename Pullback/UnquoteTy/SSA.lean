@@ -30,24 +30,6 @@ inductive SSAExpr where
 | ifthenelse (cond t e : SSAExpr) : SSAExpr
 deriving Inhabited
 
-inductive SSADo where
-| expr : SSAExpr → SSADo
-| seq (s₁ s₂ : SSADo) : SSADo
-| letE (var : Name) (val : SSAExpr) (rest : SSADo) : SSADo
-| letM (var : Name) (val : SSAExpr) (rest : SSADo) : SSADo -- let mut
-| assign (var : Name) (val : SSAExpr) (rest : SSADo) : SSADo
-| loop (body : SSADo) (rest : SSADo) : SSADo
-| break : SSADo
-| continue : SSADo
-| return (out : SSAExpr) : SSADo
-| ifthenelse (cond : SSAExpr) (t e : SSADo) (rest : SSADo) : SSADo
-
-#check Std.HashMap.insert
-
-#check Std.TreeMap
-
-#eval (((Std.HashMap.empty : Std.HashMap Name Int).insert `b 123).insert `a 456).keys
-
 def VarMap := Array (Name × SSAType)
 
 def VarMap.get (map : VarMap) (key : Name) : Option SSAType :=
@@ -64,11 +46,11 @@ def SSAConst.baseType : SSAConst → SSABaseType
 /-
     none is returned the input expr doesn't typecheck
 -/
-def SSAExpr.inferType (vars : VarMap): SSAExpr → Option SSAType
+def SSAExpr.inferType (vars : VarMap) : SSAExpr → Option SSAType
 | const base => SSAType.ofBase base.baseType
 | letE name val body =>
     (val.inferType vars).bind <|
-        fun valType => body.inferType (vars.insert name valType)
+        fun valType => body.inferType (vars.push ⟨name, valType⟩)
 | var name => vars.get name
 | app f arg =>
     f.inferType vars |>.bind
@@ -100,6 +82,38 @@ def SSAType.type : SSAType → Type
 | .fun α β => α.type → β.type
 | prod α β => α.type × β.type
 
+#check Nat × Int × Int
+def DVector : List Type → Type
+| [] => Unit
+| α::l => α × DVector l
+
+def DVector.cons {L: List Type} {α : Type} : α → DVector L → DVector (α::L)
+| a, l => (a, l)
+
+def DVector.push {L: Array Type} {α : Type} : DVector L.toList → α → DVector (L.push α).toList := sorry
+
+def DVector.get {L : List Type} (v : DVector L) (i : Fin L.length) : L.get i := sorry
+
+#check Array.toList
+def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>.isSome) → DVector (Array.toList (vars.map (·.2.type))) → (Option.get (e.inferType vars) he).type
+| .const base, _, _ => sorry
+| .letE name val body, he, ctx =>
+    match hh : val.inferType vars with
+    | some valType => cast (by simp [inferType, hh]) <| body.interp (vars.push ⟨name, valType⟩) (by sorry) (cast (by {
+        simp [Array.map_push, hh]
+    } )<| ctx.push (val.interp vars (by simp [hh]) ctx))
+    | none => sorry -- contradicts type check isSome
+| var name, he, ctx =>
+    match vars.findFinIdx? (·.1 == name) with
+    | some x => cast (by sorry /- need lemma about inferType on var -/)<| ctx.get (cast (by simp) x)
+    | none => sorry -- contradicts type check isSome
+| app f arg, he, ctx => (f.interp vars) (arg.interp vars)
+| lam name valType body, he, ctx => cast sorry <|
+    fun val : valType.type => cast (by sorry) <| body.interp (vars.push ⟨name, valType⟩) (by sorry) (cast (by simp) <| ctx.push val)
+| loop ty, he, ctx => sorry -- todo :: use extrinsicFix somehow
+| prod α β a b, he, ctx => cast sorry (a.interp vars sorry ctx, b.interp vars sorry ctx)
+| ifthenelse c t e, he, ctx => cast sorry <| if cast (β := Bool) sorry <| c.interp vars sorry ctx then t.interp vars sorry ctx else cast sorry <| e.interp vars sorry ctx
+
 def mkMutTuple (mutVars : VarMap) : SSAExpr × SSAType := sorry
 
 def destructMutTuple (mutVars : VarMap) (body : SSAExpr) : SSAExpr := sorry
@@ -108,6 +122,18 @@ def destructMutTuple (mutVars : VarMap) (body : SSAExpr) : SSAExpr := sorry
     for fixed mutVars, if baseName1 and baseName2 don't share a prefix then freshName will give different fresh names.
 -/
 def freshName (mutVars : VarMap) (baseName : Name) : Name := sorry
+
+inductive SSADo where
+| expr : SSAExpr → SSADo
+| seq (s₁ s₂ : SSADo) : SSADo
+| letE (var : Name) (val : SSAExpr) (rest : SSADo) : SSADo
+| letM (var : Name) (val : SSAExpr) (rest : SSADo) : SSADo -- let mut
+| assign (var : Name) (val : SSAExpr) (rest : SSADo) : SSADo
+| loop (body : SSADo) (rest : SSADo) : SSADo
+| break : SSADo
+| continue : SSADo
+| return (out : SSAExpr) : SSADo
+| ifthenelse (cond : SSAExpr) (t e : SSADo) (rest : SSADo) : SSADo
 
 -- partial def SSADo.toSSAExpr (mutVars : VarMap) (kbreak kcontinue : Option Name) : SSADo → SSAExpr
 -- | expr (.const (.ofUnit ())) =>
