@@ -32,11 +32,12 @@ deriving Inhabited
 
 def VarMap := Array (Name × SSAType)
 
-def VarMap.get (map : VarMap) (key : Name) : Option SSAType :=
-    map.find? (·.1 = key) |>.map (·.2)
+def Array.findLast? {α : Type u} (p : α → Bool) (as : Array α) : Option α := as.reverse.find? p
 
-def VarMap.insert (map : VarMap) (key : Name) (val : SSAType) : VarMap :=
-    if map.any (·.1 = key) then map else map.push (key, val)
+def Array.findLastFinIdx? {α : Type u} (p : α → Bool) (as : Array α) : Option (Fin as.size) := cast (by simp only [Array.size_reverse]) <| as.reverse.findFinIdx? p
+
+def VarMap.get (map : VarMap) (key : Name) : Option SSAType :=
+    map.findLast? (·.1 = key) |>.map (·.2)
 
 def SSAConst.baseType : SSAConst → SSABaseType
 | ofFloat _ => .float
@@ -112,7 +113,7 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
     } )<| ctx.push (val.interp vars (by simp [hh]) ctx))
     | none => sorry -- contradicts type check isSome
 | var name, he, ctx =>
-    match vars.findFinIdx? (·.1 == name) with
+    match vars.findLastFinIdx? (·.1 == name) with
     | some x => cast (by sorry /- need lemma about inferType on var -/)<| ctx.get (cast (by simp) x)
     | none => sorry -- contradicts type check isSome
 | app f arg, he, ctx => (f.interp vars) (arg.interp vars)
