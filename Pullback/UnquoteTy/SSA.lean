@@ -104,19 +104,36 @@ def SSAConst.toBool : SSAConst → Bool
 
 def SSAExpr.toBool (vars : VarMap) : SSAExpr → Bool := sorry
 
+#check Option.any
 def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>.isSome) → DVector (Array.toList (vars.map (·.2.type))) → (Option.get (e.inferType vars) he).type
 | .const base, _, _ => sorry
 | .letE name val body, he, ctx =>
     match hh : val.inferType vars with
-    | some valType => cast (by simp [inferType, hh]) <| body.interp (vars.push ⟨name, valType⟩) (by sorry) (cast (by {
+    | some valType => cast (by simp [inferType, hh]) <| body.interp (vars.push ⟨name, valType⟩) (by {
+        simp [inferType, Option.isSome_bind] at he
+        grind only [= Option.any_some]
+    }) (cast (by {
         simp [Array.map_push, hh]
     } )<| ctx.push (val.interp vars (by simp [hh]) ctx))
-    | none => sorry -- contradicts type check isSome
+    | none => by {
+        simp [inferType, Option.isSome_bind] at he
+        grind only [= Option.any_none]
+    }
 | var name, he, ctx =>
-    match vars.findLastFinIdx? (·.1 == name) with
-    | some x => cast (by sorry /- need lemma about inferType on var -/)<| ctx.get (cast (by simp) x)
-    | none => sorry -- contradicts type check isSome
-| app f arg, he, ctx => (f.interp vars) (arg.interp vars)
+    match h : (vars.findLastFinIdx? (·.1 == name)) with
+    | some x => cast (by {
+        simp [inferType, VarMap.get] at he
+        calc
+            _ = ((Array.findLast? (fun x => decide (x.fst = name)) vars).get he).2.type := by {
+                sorry
+            }
+            _ = _ := sorry
+
+    }) (ctx.get (cast (by {
+        simp only [Array.toList_map, List.length_map, Array.length_toList]
+    }) x))
+    | none => sorry
+| app f arg, he, ctx => (f.interp vars) (arg.interp vars sorry ctx)
 | lam name valType body, he, ctx => cast sorry <|
     fun val : valType.type => cast (by sorry) <| body.interp (vars.push ⟨name, valType⟩) (by sorry) (cast (by simp) <| ctx.push val)
 | loop ty, he, ctx => sorry -- todo :: use extrinsicFix somehow
