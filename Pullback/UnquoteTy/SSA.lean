@@ -95,6 +95,14 @@ def DVector.push {L: Array Type} {α : Type} : DVector L.toList → α → DVect
 def DVector.get {L : List Type} (v : DVector L) (i : Fin L.length) : L.get i := sorry
 
 #check Array.toList
+
+def SSAConst.toBool : SSAConst → Bool
+| ofFloat f => !(f == 0)
+| ofInt i => !(i == 0)
+| ofUnit _ => true
+
+def SSAExpr.toBool (vars : VarMap) : SSAExpr → Bool := sorry
+
 def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>.isSome) → DVector (Array.toList (vars.map (·.2.type))) → (Option.get (e.inferType vars) he).type
 | .const base, _, _ => sorry
 | .letE name val body, he, ctx =>
@@ -112,7 +120,7 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
     fun val : valType.type => cast (by sorry) <| body.interp (vars.push ⟨name, valType⟩) (by sorry) (cast (by simp) <| ctx.push val)
 | loop ty, he, ctx => sorry -- todo :: use extrinsicFix somehow
 | prod α β a b, he, ctx => cast sorry (a.interp vars sorry ctx, b.interp vars sorry ctx)
-| ifthenelse c t e, he, ctx => cast sorry <| if cast (β := Bool) sorry <| c.interp vars sorry ctx then t.interp vars sorry ctx else cast sorry <| e.interp vars sorry ctx
+| ifthenelse c t e, he, ctx => cast sorry <| if c.toBool vars then t.interp vars sorry ctx else cast sorry <| e.interp vars sorry ctx
 
 def mkMutTuple (mutVars : VarMap) : SSAExpr × SSAType := sorry
 
