@@ -32,9 +32,27 @@ deriving Inhabited
 
 def VarMap := Array (Name × SSAType)
 
+def Fin.last' {n : Nat} [NeZero n] : Fin n :=
+    match h :  n with
+    | (k + 1) => Fin.last k
+    | 0 => by {
+        apply False.elim
+        expose_names
+        rw [h] at inst
+        simp at inst
+    }
+
+def Fin.val_last'_eq {n : Nat} [NeZero n] : (Fin.last' (n := n)).val = n - 1 := sorry
+
+def Fin.le_last' {n : Nat} [NeZero n] : ∀ i : Fin n, i ≤ (Fin.last' (n := n)) := sorry
+
 def Array.findLast? {α : Type u} (p : α → Bool) (as : Array α) : Option α := as.reverse.find? p
 
-def Array.findLastFinIdx? {α : Type u} (p : α → Bool) (as : Array α) : Option (Fin as.size) := cast (by simp only [Array.size_reverse]) <| as.reverse.findFinIdx? p
+def Array.findLastFinIdx? {α : Type u} (p : α → Bool) (as : Array α) : Option (Fin as.size) := Option.map (fun res => have : NeZero as.size := ⟨by {
+    have := res.isLt
+    grind
+}⟩;
+Fin.last' - Fin.cast (size_reverse) res) (as.reverse.findFinIdx? p)
 
 def VarMap.get (map : VarMap) (key : Name) : Option SSAType :=
     map.findLast? (·.1 = key) |>.map (·.2)
@@ -104,7 +122,8 @@ def SSAConst.toBool : SSAConst → Bool
 
 def SSAExpr.toBool (vars : VarMap) : SSAExpr → Bool := sorry
 
-#check Option.any
+theorem Array.find?_eq_getElem_findFinIdx? {α : Type u} (xs : Array α) (p : α → Bool): xs.find? p = (xs.findFinIdx? p).map (xs[·]) := sorry
+
 def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>.isSome) → DVector (Array.toList (vars.map (·.2.type))) → (Option.get (e.inferType vars) he).type
 | .const base, _, _ => sorry
 | .letE name val body, he, ctx =>
@@ -114,7 +133,7 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
         grind only [= Option.any_some]
     }) (cast (by {
         simp [Array.map_push, hh]
-    } )<| ctx.push (val.interp vars (by simp [hh]) ctx))
+    }) <| ctx.push (val.interp vars (by simp [hh]) ctx))
     | none => by {
         simp [inferType, Option.isSome_bind] at he
         grind only [= Option.any_none]
@@ -125,23 +144,35 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
         simp [inferType, VarMap.get] at he
         calc
             _ = ((Array.findLast? (fun x => decide (x.fst = name)) vars).get he).2.type := by {
-                sorry
+                have : x = (some x).get rfl := rfl
+                rw [this]
+                simp [← h]
+                congr
+                simp only [Array.findLast?, Array.findLastFinIdx?]
+                simp [Array.find?_eq_getElem_findFinIdx?]
+                congr
+                push_cast
+                rw [Fin.sub_val_of_le]
+                simp [Fin.val_last'_eq]
+                grind
+                have : NeZero (Array.size vars) := ⟨by {
+                    have := x.isLt
+                    grind
+                }⟩
+                exact Fin.le_last' _
             }
-            _ = _ := sorry
+            _ = _ := by {
+                simp [Array.findLast?, inferType, VarMap.get]
+            }
 
-    }) (ctx.get (cast (by {
+    }) (ctx.get (Fin.cast (by {
         simp only [Array.toList_map, List.length_map, Array.length_toList]
     }) x))
     | none => by {
-        simp [inferType, VarMap.get] at he
-        have : Array.findLast? (fun x => decide (x.fst = name)) vars = none := by {
-            simp [Array.findLast?, Array.findLastFinIdx?] at *
-            have : (Array.findFinIdx? (fun x => x.fst == name) (Array.reverse vars)) = none := by grind
-            have : Array.find? (fun x => x.fst == name) (Array.reverse vars) = none := by grind
-            simp at this
-            grind
-        }
-        grind
+        simp only [inferType, VarMap.get, Array.findLast?, Option.isSome_map] at he
+        simp only [Array.findLastFinIdx?, Option.map_eq_none_iff] at h
+        grind only [= Option.isSome_none, = Array.find?_eq_none, = Array.findFinIdx?_eq_none_iff,
+          = Array.size_reverse]
     }
 | app f arg, he, ctx => (f.interp vars) (arg.interp vars sorry ctx)
 | lam name valType body, he, ctx => cast sorry <|
