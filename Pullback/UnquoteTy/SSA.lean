@@ -81,7 +81,15 @@ def SSAExpr.inferType (vars : VarMap) : SSAExpr → Option SSAType
         | _, _ => none
 | lam _ varType body => body.inferType vars |>.bind (fun bodyType => SSAType.fun varType bodyType)
 | loop ty => ty
-| prod α β _ _ => SSAType.prod α β
+| prod α β a b =>
+    a.inferType vars |>.bind
+    fun aType =>
+    b.inferType vars |>.bind
+    fun bType =>
+        if aType == α ∧ bType == α then
+            SSAType.prod α β
+        else
+            none
 | ifthenelse c t e =>
     c.inferType vars |>.bind
     fun cType =>
