@@ -18,6 +18,9 @@ inductive SSAConst where
 | ofFloat : Float → SSAConst
 | ofInt : Int → SSAConst
 | ofUnit : Unit → SSAConst
+| loop (ty : SSAType) : SSAConst
+| prod (α β : SSAType) : SSAConst
+| ifthenelse (ty : SSAType) : SSAConst
 
 inductive SSAExpr where
 | const : SSAConst → SSAExpr
@@ -25,9 +28,6 @@ inductive SSAExpr where
 | var (name : Name) : SSAExpr
 | app (f : SSAExpr) (arg : SSAExpr)
 | lam (varName : Name) (varType : SSAType) (body : SSAExpr) : SSAExpr
-| loop (ty : SSAType) : SSAExpr
-| prod (α : SSAType) (β : SSAType): SSAExpr → SSAExpr → SSAExpr
-| ifthenelse (cond t e : SSAExpr) : SSAExpr
 deriving Inhabited
 
 def VarMap := Array (Name × SSAType)
@@ -57,16 +57,19 @@ Fin.last' - Fin.cast (size_reverse) res) (as.reverse.findFinIdx? p)
 def VarMap.get (map : VarMap) (key : Name) : Option SSAType :=
     map.findLast? (·.1 = key) |>.map (·.2)
 
-def SSAConst.baseType : SSAConst → SSABaseType
-| ofFloat _ => .float
-| ofInt _ => .int
-| ofUnit _ => .unit
+def SSAConst.type : SSAConst → SSAType
+| ofFloat _ => .ofBase .float
+| ofInt _ => .ofBase .int
+| ofUnit _ => .ofBase .unit
+| loop ty => .fun ty (.fun ty (.prod ty (.ofBase .int))) -- ((x, 0) denotes break anything else denotes continue) todo :: adapt loop to use ForInStep and be inline with Lean.Loop
+| prod α β => .fun α (.fun β (.prod α β))
+| ifthenelse ty => .fun (.ofBase .int) (.fun ty (.fun ty ty))
 
 /-
     none is returned the input expr doesn't typecheck
 -/
 def SSAExpr.inferType (vars : VarMap) : SSAExpr → Option SSAType
-| const base => SSAType.ofBase base.baseType
+| const base => base.type
 | letE name val body =>
     (val.inferType vars).bind <|
         fun valType => body.inferType (vars.push ⟨name, valType⟩)
@@ -80,24 +83,6 @@ def SSAExpr.inferType (vars : VarMap) : SSAExpr → Option SSAType
         | SSAType.fun α β, x  => if α = x then β else none
         | _, _ => none
 | lam _ varType body => body.inferType vars |>.bind (fun bodyType => SSAType.fun varType bodyType)
-| loop ty => ty
-| prod α β a b =>
-    a.inferType vars |>.bind
-    fun aType =>
-    b.inferType vars |>.bind
-    fun bType =>
-        if aType == α ∧ bType == α then
-            SSAType.prod α β
-        else
-            none
-| ifthenelse c t e =>
-    c.inferType vars |>.bind
-    fun cType =>
-    t.inferType vars |>.bind
-    fun tType =>
-    e.inferType vars |>.bind
-    fun eType =>
-        if tType == eType then tType else none
 
 def SSABaseType.type : SSABaseType → Type
 | float => Float
@@ -122,11 +107,6 @@ def DVector.push {L: Array Type} {α : Type} : DVector L.toList → α → DVect
 def DVector.get {L : List Type} (v : DVector L) (i : Fin L.length) : L.get i := sorry
 
 #check Array.toList
-
-def SSAConst.toBool : SSAConst → Bool
-| ofFloat f => !(f == 0)
-| ofInt i => !(i == 0)
-| ofUnit _ => true
 
 def SSAExpr.toBool (vars : VarMap) : SSAExpr → Bool := sorry
 
@@ -213,11 +193,8 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
     | none => by {
         simp [inferType, hf] at he
     }
-| lam name valType body, he, ctx => cast sorry <|
-    fun val : valType.type => cast (by sorry) <| body.interp (vars.push ⟨name, valType⟩) (by sorry) (cast (by simp) <| ctx.push val)
-| loop ty, he, ctx => sorry -- todo :: use extrinsicFix somehow
-| prod α β a b, he, ctx => cast sorry (a.interp vars sorry ctx, b.interp vars sorry ctx)
-| ifthenelse c t e, he, ctx => cast sorry <| if c.toBool vars then t.interp vars sorry ctx else cast sorry <| e.interp vars sorry ctx
+| lam name valType body, he, ctx => sorry -- cast sorry <|
+    -- fun val : valType.type => cast (by sorry) <| body.interp (vars.push ⟨name, valType⟩) (by sorry) (cast (by simp) <| ctx.push val)
 
 def mkMutTuple (mutVars : VarMap) : SSAExpr × SSAType := sorry
 
