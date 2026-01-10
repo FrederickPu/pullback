@@ -82,7 +82,7 @@ def SSAExpr.inferType (vars : VarMap) : SSAExpr → Option SSAType
         match fType, argType with
         | SSAType.fun α β, x  => if α = x then β else none
         | _, _ => none
-| lam _ varType body => body.inferType vars |>.bind (fun bodyType => SSAType.fun varType bodyType)
+| lam name varType body => body.inferType (vars.push (name, varType)) |>.bind (fun bodyType => SSAType.fun varType bodyType)
 
 def SSABaseType.type : SSABaseType → Type
 | float => Float
@@ -193,8 +193,14 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
     | none => by {
         simp [inferType, hf] at he
     }
-| lam name valType body, he, ctx => sorry -- cast sorry <|
-    -- fun val : valType.type => cast (by sorry) <| body.interp (vars.push ⟨name, valType⟩) (by sorry) (cast (by simp) <| ctx.push val)
+| lam name valType body, he, ctx => cast (by {
+    simp [inferType, Option.isSome_bind] at he
+    simp [inferType, SSAType.type]
+}) <|
+    fun val : valType.type => (body.interp (vars.push ⟨name, valType⟩) (by {
+        simp [inferType, Option.isSome_bind] at he
+        grind
+    }) (cast (by simp) <| ctx.push val))
 
 def mkMutTuple (mutVars : VarMap) : SSAExpr × SSAType := sorry
 
