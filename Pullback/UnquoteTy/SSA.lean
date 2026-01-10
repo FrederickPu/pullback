@@ -57,7 +57,7 @@ Fin.last' - Fin.cast (size_reverse) res) (as.reverse.findFinIdx? p)
 def VarMap.get (map : VarMap) (key : Name) : Option SSAType :=
     map.findLast? (·.1 = key) |>.map (·.2)
 
-def SSAConst.type : SSAConst → SSAType
+def SSAConst.inferType : SSAConst → SSAType
 | ofFloat _ => .ofBase .float
 | ofInt _ => .ofBase .int
 | ofUnit _ => .ofBase .unit
@@ -69,7 +69,7 @@ def SSAConst.type : SSAConst → SSAType
     none is returned the input expr doesn't typecheck
 -/
 def SSAExpr.inferType (vars : VarMap) : SSAExpr → Option SSAType
-| const base => base.type
+| const base => base.inferType
 | letE name val body =>
     (val.inferType vars).bind <|
         fun valType => body.inferType (vars.push ⟨name, valType⟩)
@@ -113,8 +113,18 @@ def SSAExpr.toBool (vars : VarMap) : SSAExpr → Bool := sorry
 theorem Array.find?_eq_getElem_findFinIdx? {α : Type u} (xs : Array α) (p : α → Bool): xs.find? p = (xs.findFinIdx? p).map (xs[·]) := sorry
 
 #check cast
+
+#check Prod.mk Nat Nat
+def SSAConst.interp : (e : SSAConst) → (e.inferType).type
+| ofFloat f => f
+| ofInt i => i
+| ofUnit () => ()
+| ifthenelse ty => fun c t e => if (cast sorry c : Int) != 0 then t else e
+| loop ty => sorry
+| prod α β => (@Prod.mk α.type β.type)
+
 def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>.isSome) → DVector (Array.toList (vars.map (·.2.type))) → (Option.get (e.inferType vars) he).type
-| .const base, _, _ => sorry
+| .const base, he, _ => base.interp
 | .letE name val body, he, ctx =>
     match hh : val.inferType vars with
     | some valType => cast (by simp [inferType, hh]) <| body.interp (vars.push ⟨name, valType⟩) (by {
