@@ -132,6 +132,7 @@ def SSAExpr.toBool (vars : VarMap) : SSAExpr → Bool := sorry
 
 theorem Array.find?_eq_getElem_findFinIdx? {α : Type u} (xs : Array α) (p : α → Bool): xs.find? p = (xs.findFinIdx? p).map (xs[·]) := sorry
 
+#check cast
 def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>.isSome) → DVector (Array.toList (vars.map (·.2.type))) → (Option.get (e.inferType vars) he).type
 | .const base, _, _ => sorry
 | .letE name val body, he, ctx =>
@@ -182,7 +183,36 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
         grind only [= Option.isSome_none, = Array.find?_eq_none, = Array.findFinIdx?_eq_none_iff,
           = Array.size_reverse]
     }
-| app f arg, he, ctx => (f.interp vars) (arg.interp vars sorry ctx)
+| app f arg, he, ctx =>
+    match hf : f.inferType vars with
+    | some (.fun α β) =>
+        cast (by {
+            grind [inferType]
+        }) <|
+        (cast (β := α.type → β.type) (by {
+            simp [inferType, Option.isSome_bind, Option.any_eq_true_iff_get] at he
+            have : inferType vars f = some (.fun α β) := by grind
+            simp [this, SSAType.type]
+        }) <| f.interp vars (by grind [inferType]) ctx) (cast (β := α.type) (by {
+            simp [inferType, Option.isSome_bind, Option.any_eq_true_iff_get] at he
+            grind
+        }) <| arg.interp vars (by {
+            simp only [inferType, Option.isSome_bind, Option.any_eq_true_iff_get] at he
+            grind only
+        }) ctx)
+    | some (.prod α β) => by {
+        simp [inferType, Option.isSome_bind, Option.any_eq_true_iff_get] at he
+        apply False.elim
+        grind
+    }
+    | some (.ofBase bTy) => by {
+        simp [inferType, Option.isSome_bind, Option.any_eq_true_iff_get] at he
+        apply False.elim
+        grind
+    }
+    | none => by {
+        simp [inferType, hf] at he
+    }
 | lam name valType body, he, ctx => cast sorry <|
     fun val : valType.type => cast (by sorry) <| body.interp (vars.push ⟨name, valType⟩) (by sorry) (cast (by simp) <| ctx.push val)
 | loop ty, he, ctx => sorry -- todo :: use extrinsicFix somehow
