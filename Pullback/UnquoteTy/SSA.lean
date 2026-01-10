@@ -21,6 +21,10 @@ inductive SSAConst where
 | loop (ty : SSABaseType) : SSAConst
 | prod (α β : SSAType) : SSAConst
 | ifthenelse (ty : SSAType) : SSAConst
+/-prop stuff-/
+| eq (ty : SSABaseType) : SSAConst
+| and : SSAConst
+| or: SSAConst
 
 inductive SSAExpr where
 | const : SSAConst → SSAExpr
@@ -76,6 +80,9 @@ def SSAConst.inferType : SSAConst → SSAType
 | loop ty => .fun (.ofBase ty) (.fun (.fun (.ofBase ty) (.prod (.ofBase ty) (.ofBase .int))) (.ofBase ty))-- ((x, 1) denotes break anything else denotes continue) todo :: adapt loop to use ForInStep and be inline with Lean.Loop
 | prod α β => .fun α (.fun β (.prod α β))
 | ifthenelse ty => .fun (.ofBase .int) (.fun ty (.fun ty ty))
+| eq ty => .fun (.ofBase ty) (.fun (.ofBase ty) (.ofBase .int))
+| and => .fun (.ofBase .int) (.fun (.ofBase .int) (.ofBase .int))
+| or => .fun (.ofBase .int) (.fun (.ofBase .int) (.ofBase .int))
 
 /-
     none is returned the input expr doesn't typecheck
@@ -130,6 +137,8 @@ theorem Array.find?_eq_getElem_findFinIdx? {α : Type u} (xs : Array α) (p : α
 -- (a : α, true) means break (a : α, false) means continue
 def SSA.loop {α : Type u} [Inhabited α] (init : α) (step : α → α × Bool) : α := sorry
 
+instance (ty : SSABaseType) : DecidableEq (SSAType.ofBase ty).type := sorry
+
 private def SSABaseType.inhabit : (ty : SSABaseType) → ty.type
 | int => (0 : Int)
 | float => (0 : Float)
@@ -148,6 +157,9 @@ def SSAConst.interp : (e : SSAConst) → (e.inferType).type
 | ifthenelse ty => fun c t e => if (cast (by simp [SSAType.type, SSABaseType.type]) c : Int) != 0 then t else e
 | loop ty => fun init => fun step => SSA.loop (α := (SSAType.ofBase ty).type) init (fun x => let (a, b) := step x; (a, cast (β := Int) (by simp [SSAType.type, SSABaseType.type]) b == 1))
 | prod α β => (@Prod.mk α.type β.type)
+| eq ty => fun t₁ t₂ => if t₁ = t₂ then (1:Int) else (0:Int)
+| or => fun x y => if x != (0: Int) || y != (0:Int) then (1:Int) else (0:Int)
+| and => fun x y => if x != (0 : Int) && y != (0 : Int) then (1 : Int) else (0 : Int)
 
 def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>.isSome) → DVector (Array.toList (vars.map (·.2.type))) → (Option.get (e.inferType vars) he).type
 | .const base, he, _ => base.interp
