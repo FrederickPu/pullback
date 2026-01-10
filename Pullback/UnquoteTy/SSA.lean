@@ -18,7 +18,7 @@ inductive SSAConst where
 | ofFloat : Float → SSAConst
 | ofInt : Int → SSAConst
 | ofUnit : Unit → SSAConst
-| loop (ty : SSAType) : SSAConst
+| loop (ty : SSABaseType) : SSAConst
 | prod (α β : SSAType) : SSAConst
 | ifthenelse (ty : SSAType) : SSAConst
 
@@ -61,7 +61,7 @@ def SSAConst.inferType : SSAConst → SSAType
 | ofFloat _ => .ofBase .float
 | ofInt _ => .ofBase .int
 | ofUnit _ => .ofBase .unit
-| loop ty => .fun ty (.fun ty (.prod ty (.ofBase .int))) -- ((x, 0) denotes break anything else denotes continue) todo :: adapt loop to use ForInStep and be inline with Lean.Loop
+| loop ty => .fun (.ofBase ty) (.fun (.fun (.ofBase ty) (.prod (.ofBase ty) (.ofBase .int))) (.ofBase ty))-- ((x, 1) denotes break anything else denotes continue) todo :: adapt loop to use ForInStep and be inline with Lean.Loop
 | prod α β => .fun α (.fun β (.prod α β))
 | ifthenelse ty => .fun (.ofBase .int) (.fun ty (.fun ty ty))
 
@@ -115,12 +115,21 @@ theorem Array.find?_eq_getElem_findFinIdx? {α : Type u} (xs : Array α) (p : α
 #check cast
 
 #check Prod.mk Nat Nat
+
+-- (a : α, true) means break (a : α, false) means continue
+def SSA.loop {α : Type u} [Inhabited α] (init : α) (step : α → α × Bool) : α := sorry
+
+instance {ty : SSABaseType} : Inhabited ty.type := sorry
+
+instance {ty : SSABaseType} : Inhabited (SSAType.ofBase ty).type := sorry
+
+
 def SSAConst.interp : (e : SSAConst) → (e.inferType).type
 | ofFloat f => f
 | ofInt i => i
 | ofUnit () => ()
 | ifthenelse ty => fun c t e => if (cast sorry c : Int) != 0 then t else e
-| loop ty => sorry
+| loop ty => fun init => fun step => SSA.loop (α := (SSAType.ofBase ty).type) init (fun x => let (a, b) := step x; (a, cast (β := Int) sorry b == 1))
 | prod α β => (@Prod.mk α.type β.type)
 
 def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>.isSome) → DVector (Array.toList (vars.map (·.2.type))) → (Option.get (e.inferType vars) he).type
