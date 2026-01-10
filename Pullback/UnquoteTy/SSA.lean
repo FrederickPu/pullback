@@ -42,9 +42,21 @@ def Fin.last' {n : Nat} [NeZero n] : Fin n :=
         simp at inst
     }
 
-def Fin.val_last'_eq {n : Nat} [NeZero n] : (Fin.last' (n := n)).val = n - 1 := sorry
+def Fin.val_last'_eq {n : Nat} [NeZero n] : (Fin.last' (n := n)).val = n - 1 := by
+    cases n with
+    | succ k => simp [last']
+    | zero => grind only
 
-def Fin.le_last' {n : Nat} [NeZero n] : ∀ i : Fin n, i ≤ (Fin.last' (n := n)) := sorry
+def Fin.le_last' {n : Nat} [NeZero n] : ∀ i : Fin n, i ≤ (Fin.last' (n := n)) := by
+    cases n with
+    | succ k =>
+        intro i
+        have : i.val ≤ (last' : Fin (k + 1)).val := by
+            simp only [val_last'_eq, Nat.add_one_sub_one]
+            have := i.isLt
+            grind only
+        exact this
+    | zero => grind only
 
 def Array.findLast? {α : Type u} (p : α → Bool) (as : Array α) : Option α := as.reverse.find? p
 
@@ -102,19 +114,18 @@ def DVector : List Type → Type
 def DVector.cons {L: List Type} {α : Type} : α → DVector L → DVector (α::L)
 | a, l => (a, l)
 
-def DVector.push {L: Array Type} {α : Type} : DVector L.toList → α → DVector (L.push α).toList := sorry
+def DVector.push : {L: Array Type} → {α : Type} → DVector L.toList → α → DVector (L.push α).toList
+| ⟨[]⟩, α, _, a => (a, ())
+| ⟨l::ls⟩, α, (x, xs), a => DVector.cons x <| DVector.push xs a
 
-def DVector.get {L : List Type} (v : DVector L) (i : Fin L.length) : L.get i := sorry
+/-
+    recursive structure follows List.get exactly
+-/
+def DVector.get : {L : List Type} → (v : DVector L) → (i : Fin L.length) → L.get i
+| .cons _ _, (a, _), ⟨0, _⟩ => a
+| .cons _ _, (_, as), ⟨Nat.succ i, h⟩ => DVector.get as ⟨i, Nat.le_of_succ_le_succ h⟩
 
-#check Array.toList
-
-def SSAExpr.toBool (vars : VarMap) : SSAExpr → Bool := sorry
-
-theorem Array.find?_eq_getElem_findFinIdx? {α : Type u} (xs : Array α) (p : α → Bool): xs.find? p = (xs.findFinIdx? p).map (xs[·]) := sorry
-
-#check cast
-
-#check Prod.mk Nat Nat
+theorem Array.find?_eq_getElem_findFinIdx? {α : Type u} (xs : Array α) (p : α → Bool): xs.find? p = (xs.findFinIdx? p).map (xs[·]) := by sorry
 
 -- (a : α, true) means break (a : α, false) means continue
 def SSA.loop {α : Type u} [Inhabited α] (init : α) (step : α → α × Bool) : α := sorry
@@ -129,7 +140,6 @@ instance {ty : SSABaseType} : Inhabited ty.type := ⟨ty.inhabit⟩
 instance {ty : SSABaseType} : Inhabited (SSAType.ofBase ty).type := by
     simp [SSAType.type]
     infer_instance
-
 
 def SSAConst.interp : (e : SSAConst) → (e.inferType).type
 | ofFloat f => f
