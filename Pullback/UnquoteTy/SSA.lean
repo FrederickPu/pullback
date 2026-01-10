@@ -119,17 +119,24 @@ theorem Array.find?_eq_getElem_findFinIdx? {α : Type u} (xs : Array α) (p : α
 -- (a : α, true) means break (a : α, false) means continue
 def SSA.loop {α : Type u} [Inhabited α] (init : α) (step : α → α × Bool) : α := sorry
 
-instance {ty : SSABaseType} : Inhabited ty.type := sorry
+private def SSABaseType.inhabit : (ty : SSABaseType) → ty.type
+| int => (0 : Int)
+| float => (0 : Float)
+| unit => ()
 
-instance {ty : SSABaseType} : Inhabited (SSAType.ofBase ty).type := sorry
+instance {ty : SSABaseType} : Inhabited ty.type := ⟨ty.inhabit⟩
+
+instance {ty : SSABaseType} : Inhabited (SSAType.ofBase ty).type := by
+    simp [SSAType.type]
+    infer_instance
 
 
 def SSAConst.interp : (e : SSAConst) → (e.inferType).type
 | ofFloat f => f
 | ofInt i => i
 | ofUnit () => ()
-| ifthenelse ty => fun c t e => if (cast sorry c : Int) != 0 then t else e
-| loop ty => fun init => fun step => SSA.loop (α := (SSAType.ofBase ty).type) init (fun x => let (a, b) := step x; (a, cast (β := Int) sorry b == 1))
+| ifthenelse ty => fun c t e => if (cast (by simp [SSAType.type, SSABaseType.type]) c : Int) != 0 then t else e
+| loop ty => fun init => fun step => SSA.loop (α := (SSAType.ofBase ty).type) init (fun x => let (a, b) := step x; (a, cast (β := Int) (by simp [SSAType.type, SSABaseType.type]) b == 1))
 | prod α β => (@Prod.mk α.type β.type)
 
 def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>.isSome) → DVector (Array.toList (vars.map (·.2.type))) → (Option.get (e.inferType vars) he).type
