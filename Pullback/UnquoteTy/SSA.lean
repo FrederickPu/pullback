@@ -15,7 +15,8 @@ inductive SSAType where
 deriving DecidableEq
 
 inductive SSAConst where
-| ofFloat : Float → SSAConst
+/- use Rat instead of Float for underlying value since Float is opaque -/
+| ofFloat : Rat → SSAConst
 | ofInt : Int → SSAConst
 | ofUnit : Unit → SSAConst
 | loop (ty : SSABaseType) : SSAConst
@@ -104,7 +105,7 @@ def SSAExpr.inferType (vars : VarMap) : SSAExpr → Option SSAType
 | lam name varType body => body.inferType (vars.push (name, varType)) |>.bind (fun bodyType => SSAType.fun varType bodyType)
 
 def SSABaseType.type : SSABaseType → Type
-| float => Float
+| float => Rat
 | int => Int
 | unit => Unit
 
@@ -142,20 +143,38 @@ theorem Array.find?_eq_getElem_findFinIdx? {α : Type u} (xs : Array α) (p : α
     · grind
 
 -- (a : α, true) means break (a : α, false) means continue
-def SSA.loop {α : Type u} [Inhabited α] (init : α) (step : α → α × Bool) : α := sorry
+def SSA.loop {α : Type u} [Inhabited α] (init : α) (step : α → α × Bool) : α := Id.run do
+    let mut state := init
+    while true do
+        let temp := step state
+        if temp.2 then
+            break
+        state := temp.1
+    return state
 
-instance (ty : SSABaseType) : DecidableEq (SSAType.ofBase ty).type := sorry
+private def SSABaseType.decEq : (ty : SSABaseType) → DecidableEq ty.type
+| float => by
+    simp [SSABaseType.type]
+    infer_instance
+| int => by
+    simp [SSABaseType.type]
+    infer_instance
+| unit => by
+    simp [SSABaseType.type]
+    infer_instance
+
+instance (ty : SSABaseType) : DecidableEq (SSAType.ofBase ty).type := by
+    simp [SSAType.type]
+    exact SSABaseType.decEq ty
 
 private def SSABaseType.inhabit : (ty : SSABaseType) → ty.type
 | int => (0 : Int)
-| float => (0 : Float)
+| float => (0 : Rat)
 | unit => ()
-
-instance {ty : SSABaseType} : Inhabited ty.type := ⟨ty.inhabit⟩
 
 instance {ty : SSABaseType} : Inhabited (SSAType.ofBase ty).type := by
     simp [SSAType.type]
-    infer_instance
+    exact ⟨SSABaseType.inhabit ty⟩
 
 def SSAConst.interp : (e : SSAConst) → (e.inferType).type
 | ofFloat f => f
