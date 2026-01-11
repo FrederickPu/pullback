@@ -298,10 +298,25 @@ def destructMutTuple (tupleName : Name) : VarMap → SSAExpr → SSAExpr
     .letE name (.app (.const (.prod₁ type rightTupleType)) (.var tupleName)) (.letE tupleName (.app (.const (.prod₂ type rightTupleType)) (.var tupleName)) (destructMutTuple tupleName ⟨b::l⟩ body))
 termination_by as _ => as.size
 
+#check Lean.LocalContext
+#check Lean.LocalContext.getUnusedName
+#check Lean.LocalContext.getUnusedName
+#check Name.appendIndexAfter
+
+/- todo :: should be able to prove termination by showing that each name will have a maximal number of prefix occurances in the mutvars varmap -/
+private partial def freshNameAux (mutVars : VarMap) (baseName : Name) (idx : Nat) : Name :=
+    if mutVars.any (·.1 == baseName.appendIndexAfter idx) then
+        freshNameAux mutVars baseName (idx + 1)
+    else
+        baseName.appendIndexAfter idx
 /-
     for fixed mutVars, if baseName1 and baseName2 don't share a prefix then freshName will give different fresh names.
 -/
-def freshName (mutVars : VarMap) (baseName : Name) : Name := sorry
+def freshName (mutVars : VarMap) (baseName : Name) : Name :=
+    if mutVars.any (·.1 == baseName) then
+        freshNameAux mutVars baseName 1
+    else
+        baseName
 
 inductive SSADo where
 | expr : SSAExpr → SSADo
