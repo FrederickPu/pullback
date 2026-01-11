@@ -21,6 +21,8 @@ inductive SSAConst where
 | ofUnit : Unit → SSAConst
 | loop (ty : SSABaseType) : SSAConst
 | prod (α β : SSAType) : SSAConst
+| prod₁ (α β : SSAType) : SSAConst
+| prod₂ (α β : SSAType) : SSAConst
 | ifthenelse (ty : SSAType) : SSAConst
 /-prop stuff-/
 | eq (ty : SSABaseType) : SSAConst
@@ -80,6 +82,8 @@ def SSAConst.inferType : SSAConst → SSAType
 | ofUnit _ => .ofBase .unit
 | loop ty => .fun (.ofBase ty) (.fun (.fun (.ofBase ty) (.prod (.ofBase ty) (.ofBase .int))) (.ofBase ty))-- ((x, 1) denotes break anything else denotes continue) todo :: adapt loop to use ForInStep and be inline with Lean.Loop
 | prod α β => .fun α (.fun β (.prod α β))
+| prod₁ α β => .fun (.prod α β) α
+| prod₂ α β => .fun (.prod α β) β
 | ifthenelse ty => .fun (.ofBase .int) (.fun ty (.fun ty ty))
 | eq ty => .fun (.ofBase ty) (.fun (.ofBase ty) (.ofBase .int))
 | and => .fun (.ofBase .int) (.fun (.ofBase .int) (.ofBase .int))
@@ -183,6 +187,8 @@ def SSAConst.interp : (e : SSAConst) → (e.inferType).type
 | ifthenelse ty => fun c t e => if (cast (by simp [SSAType.type, SSABaseType.type]) c : Int) != 0 then t else e
 | loop ty => fun init => fun step => SSA.loop (α := (SSAType.ofBase ty).type) init (fun x => let (a, b) := step x; (a, cast (β := Int) (by simp [SSAType.type, SSABaseType.type]) b == 1))
 | prod α β => (@Prod.mk α.type β.type)
+| prod₁ α β => fun ab => ab.1
+| prod₂ α β => fun ab => ab.2
 | eq ty => fun t₁ t₂ => if t₁ = t₂ then (1:Int) else (0:Int)
 | or => fun x y => if x != (0: Int) || y != (0:Int) then (1:Int) else (0:Int)
 | and => fun x y => if x != (0 : Int) && y != (0 : Int) then (1 : Int) else (0 : Int)
@@ -276,9 +282,21 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
         grind
     }) (cast (by simp) <| ctx.push val))
 
-def mkMutTuple (mutVars : VarMap) : SSAExpr × SSAType := sorry
+def mkMutTuple : VarMap → SSAExpr × SSAType
+| ⟨[]⟩ => (.const (SSAConst.ofUnit ()), .ofBase .unit)
+| ⟨[(name, type)]⟩ => (.var name, type)
+| ⟨(name, type)::b::l⟩ =>
+    let (rightExpr, rightType) := mkMutTuple ⟨(b::l)⟩;
+    (.app (.app (.const (.prod type rightType)) (.var name)) rightExpr, .prod type rightType)
+termination_by as => as.size
 
-def destructMutTuple (mutVars : VarMap) (body : SSAExpr) : SSAExpr := sorry
+def destructMutTuple (tupleName : Name) : VarMap → SSAExpr → SSAExpr
+| ⟨[]⟩, body => body
+| ⟨[(name, _)]⟩, body => .letE name (.var tupleName) body
+| ⟨(name, type)::b::l⟩, body =>
+    let (_, rightTupleType) := mkMutTuple ⟨b::l⟩
+    .letE name (.app (.const (.prod₁ type rightTupleType)) (.var tupleName)) (.letE tupleName (.app (.const (.prod₂ type rightTupleType)) (.var tupleName)) (destructMutTuple tupleName ⟨b::l⟩ body))
+termination_by as _ => as.size
 
 /-
     for fixed mutVars, if baseName1 and baseName2 don't share a prefix then freshName will give different fresh names.
