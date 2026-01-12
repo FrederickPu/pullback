@@ -343,7 +343,7 @@ def SSADo.collectMutVars : SSADo → Array Name
 | .return _ => #[]
 | ifthenelse _ _ _ _ => #[]
 
-partial def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Option Name) : SSADo → Option SSAExpr
+def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Option Name) : SSADo → Option SSAExpr
 | expr (.const (.ofUnit ())) =>
     match kcontinue with
     | some kcontinue => SSAExpr.app (SSAExpr.var kcontinue) (mkMutTuple mutVars).1
