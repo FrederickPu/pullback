@@ -304,16 +304,16 @@ termination_by as _ => as.size
 #check Name.appendIndexAfter
 
 /- todo :: should be able to prove termination by showing that each name will have a maximal number of prefix occurances in the mutvars varmap -/
-private partial def freshNameAux (mutVars : VarMap) (baseName : Name) (idx : Nat) : Name :=
-    if mutVars.any (·.1 == baseName.appendIndexAfter idx) then
+private partial def freshNameAux (mutVars : Array Name) (baseName : Name) (idx : Nat) : Name :=
+    if mutVars.any (· == baseName.appendIndexAfter idx) then
         freshNameAux mutVars baseName (idx + 1)
     else
         baseName.appendIndexAfter idx
 /-
     for fixed mutVars, if baseName1 and baseName2 don't share a prefix then freshName will give different fresh names.
 -/
-def freshName (mutVars : VarMap) (baseName : Name) : Name :=
-    if mutVars.any (·.1 == baseName) then
+def freshName (mutVars : Array Name) (baseName : Name) : Name :=
+    if mutVars.any (· == baseName) then
         freshNameAux mutVars baseName 1
     else
         baseName
@@ -330,7 +330,18 @@ inductive SSADo where
 | return (out : SSAExpr) : SSADo
 | ifthenelse (cond : SSAExpr) (t e : SSADo) (rest : SSADo) : SSADo
 
-def SSADo.collectMutVars : SSADo → VarMap := sorry
+/- collect mut vars in top level scope (specifically for hygiene for mut var tuples) -/
+def SSADo.collectMutVars : SSADo → Array Name
+| expr e => #[]
+| seq s₁ s₂ =>  Array.append (s₁.collectMutVars) (s₂.collectMutVars)
+| letE var val rest => rest.collectMutVars
+| letM var val rest => Array.append #[var] (rest.collectMutVars)
+| assign var val rest => rest.collectMutVars
+| loop (body : SSADo) (rest : SSADo) => rest.collectMutVars
+| .break => #[]
+| .continue => #[]
+| .return _ => #[]
+| ifthenelse _ _ _ _ => #[]
 
 partial def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Option Name) : SSADo → Option SSAExpr
 | expr (.const (.ofUnit ())) =>
@@ -349,13 +360,13 @@ partial def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue
 | assign var val rest => do pure <| SSAExpr.letE var val (← rest.toSSAExpr vars mutVars kbreak kcontinue)
 | loop body rest => do
     let (mutTuple, mutTupleType) := (mkMutTuple mutVars)
-    let bodyMutVars : VarMap := body.collectMutVars
-    let nS : Name := freshName (Array.append mutVars bodyMutVars) `s
+    let bodyMutVars : Array Name  := body.collectMutVars
+    let nS : Name := freshName (Array.append (mutVars.map (·.1)) bodyMutVars) `s
     let breakNew : SSAExpr ← SSAExpr.lam nS mutTupleType <| (destructMutTuple `s mutVars (← rest.toSSAExpr vars mutVars kbreak kcontinue))
-    let nKBreak : Name := freshName mutVars `kbreak
-    let nKContinue : Name := freshName mutVars `kcontinue
+    let nKBreak : Name := freshName (mutVars.map (·.1)) `kbreak
+    let nKContinue : Name := freshName (mutVars.map (·.1)) `kcontinue
     -- todo :: modify mutvars passed into toSSAExpr for body
-    let body' : SSAExpr ← destructMutTuple `s mutVars (← body.toSSAExpr vars mutVars nKBreak nKContinue)
+    let body' : SSAExpr ← destructMutTuple nS mutVars (← body.toSSAExpr vars mutVars nKBreak nKContinue)
     SSAExpr.letE nKBreak breakNew <|
         SSAExpr.app (SSAExpr.app (SSAExpr.const (SSAConst.loop mutTupleType)) (SSAExpr.lam nKContinue (SSAType.fun mutTupleType (SSAType.ofBase .unit)) (SSAExpr.lam nS mutTupleType body'))) mutTuple
 | .break => do
@@ -367,9 +378,9 @@ partial def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue
 | .return out => out
 | ifthenelse cond t e rest => do
     let (mutTuple, mutTupleType) := (mkMutTuple mutVars)
-    let nKContinue : Name := freshName mutVars `kcontinue
-    let restMutVars : VarMap := rest.collectMutVars
-    let nS : Name := freshName (Array.append mutVars restMutVars) `s
+    let nKContinue : Name := freshName (mutVars.map (·.1)) `kcontinue
+    let restMutVars : Array Name := rest.collectMutVars
+    let nS : Name := freshName (Array.append (mutVars.map (·.1)) restMutVars) `s
     -- todo :: pass expanded mutvars into toSSAExpr
     let continue' ← (SSAExpr.lam nS mutTupleType <| ← rest.toSSAExpr vars mutVars kbreak kcontinue)
     let texpr ← t.toSSAExpr vars mutVars kbreak nKContinue
