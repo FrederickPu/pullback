@@ -354,7 +354,7 @@ partial def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue
     match kcontinue with
     | some _ => none -- loop body should not end in non unit type
     | none => e
-| seq s₁ s₂ => do pure <| SSAExpr.letE `x (← s₁.toSSAExpr vars mutVars kbreak kcontinue) (← s₂.toSSAExpr vars mutVars kbreak kcontinue)
+| seq s₁ s₂ => do pure <| SSAExpr.letE (freshName (Array.append s₁.collectMutVars s₂.collectMutVars) `x) (← s₁.toSSAExpr vars mutVars kbreak kcontinue) (← s₂.toSSAExpr vars mutVars kbreak kcontinue)
 | letE var val rest => do pure <| SSAExpr.letE var val (← rest.toSSAExpr (vars.push (var, ← val.inferType vars)) mutVars kbreak kcontinue)
 | letM var val rest => do pure <| SSAExpr.letE var val (← rest.toSSAExpr (vars.push (var, ← val.inferType vars)) (mutVars.push (var, ← val.inferType vars)) kbreak kcontinue)
 | assign var val rest => do pure <| SSAExpr.letE var val (← rest.toSSAExpr vars mutVars kbreak kcontinue)
