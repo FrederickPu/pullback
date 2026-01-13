@@ -282,6 +282,14 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
         grind
     }) (cast (by simp) <| ctx.push val))
 
+
+def SSAExpr.interp? (vars : VarMap) : (e : SSAExpr) → DVector (Array.toList (vars.map (·.2.type))) → (match e.inferType vars with
+| some ty => ty.type
+| none => Unit) := fun e ctx =>
+    match he : e.inferType vars with
+    | some ty => cast (by simp only [he, Option.get_some]) (e.interp vars (by simp [he]) ctx)
+    | none => ()
+
 def mkMutTuple : VarMap → SSAExpr × SSAType
 | ⟨[]⟩ => (.const (SSAConst.ofUnit ()), .ofBase .unit)
 | ⟨[(name, type)]⟩ => (.var name, type)
@@ -387,3 +395,11 @@ def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Optio
     let tExprType ← texpr.inferType vars
     SSAExpr.letE nKContinue continue' <|
     SSAExpr.app (SSAExpr.app (SSAExpr.app (.const (.ifthenelse tExprType)) cond) (← t.toSSAExpr vars mutVars kbreak nKContinue)) (← e.toSSAExpr vars mutVars kbreak nKContinue)
+
+def SSADo.eval (args : VarMap) : SSADo → DVector (args.map (·.2.type)).toList → Option (SSAConst) := sorry
+
+
+#check HasEquiv
+
+/- if deep embedding evaluates to a const it will evaluate to the same value of given by the shallow embedding -/
+theorem SSADo.eval_eq_toexpr_interp (args : VarMap) (prog : SSADo) : ∀ input, ∀ x, prog.eval args input = some x → ∃ y, prog.toSSAExpr args #[] none none = some y ∧ x.interp ≍ y.interp? args := sorry
