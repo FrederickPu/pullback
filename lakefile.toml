@@ -12,3 +12,8 @@ root = "Main"
 [[require]]
 name = "Qq"
 git = "https://github.com/leanprover-community/quote4.git"
+
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
