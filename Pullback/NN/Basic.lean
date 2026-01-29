@@ -12,6 +12,36 @@ def NDMatrix.map {α : Type u} (f : α → α) : {shape : List Nat} → NDMatrix
 | [] => f
 | _::l => fun x => fun i => NDMatrix.map f (shape := l) (x i)
 
+instance NDMatrix.instInhabited {α : Type u} [Inhabited α] : {shape : List Nat} → Inhabited (NDMatrix α shape)
+  | [] => inferInstance
+  | _ :: shape => letI := instInhabited (α := α) (shape := shape); inferInstance
+
+def NDMatrix.broadcastMapAux {α : Type u} {s₁ s₂ : List Nat} (f : NDMatrix α s₁ → NDMatrix α s₂) : (shapePrefix : List Nat) → NDMatrix α (shapePrefix ++ s₁) → NDMatrix α (shapePrefix ++ s₂)
+| [] => f
+| _::l => fun x => fun i => NDMatrix.broadcastMapAux f l (x i)
+
+def NDMatrix.broadcastMap {α : Type u} {s₁ s₂ : List Nat} (f : NDMatrix α s₁ → NDMatrix α s₂) {shape : List Nat} (hShape : shape.drop (shape.length - s₁.length) = s₁ := by simp) : NDMatrix α shape → NDMatrix α (shape.take (shape.length - s₁.length) ++ s₂) :=
+  cast (by {
+    have : shape = shape.take (shape.length - s₁.length) ++ shape.drop (shape.length - s₁.length) :=
+      Eq.symm (List.take_append_drop (shape.length - s₁.length) shape)
+    rw [hShape] at this
+    grind
+  }) (NDMatrix.broadcastMapAux f (shape.take (shape.length - s₁.length)))
+
+def NDMatrix.broadcastMap? {α : Type u} {s₁ s₂ : List Nat} (f : NDMatrix α s₁ → NDMatrix α s₂) : {shape : List Nat} → NDMatrix α shape → Option (NDMatrix α (shape.take (shape.length - s₁.length) ++ s₂)) :=
+  fun {shape} x =>
+    if h : shape.drop (shape.length - s₁.length) = s₁ then
+      some <| NDMatrix.broadcastMap f h x
+    else
+      none
+
+def NDMatrix.broadcastMap! {α : Type u} [Inhabited α] {s₁ s₂ : List Nat} (f : NDMatrix α s₁ → NDMatrix α s₂) : {shape : List Nat} → NDMatrix α shape → NDMatrix α (shape.take (shape.length - s₁.length) ++ s₂) :=
+  fun {shape} =>
+    if h : shape.drop (shape.length - s₁.length) = s₁ then
+      NDMatrix.broadcastMap f h
+    else
+      default
+
 def NDMatrix.sum {α : Type u} [Zero α] [Add α] : {shape : List Nat} → NDMatrix α shape → α
 | [] => id
 | _::l => fun x => Fin.sum (fun i => NDMatrix.sum (shape := l) (x i))
@@ -22,16 +52,22 @@ def NDMatrix.entrywise {α : Type u} (f : α → α → α) : {shape : List Nat}
   fun x y =>
     fun i => NDMatrix.entrywise f (shape := l) (x i) (y i)
 
-instance instNonempty {α : Type u} [Nonempty α] : {shape : List Nat} → Nonempty (NDMatrix α shape)
+def NDMatrix.broadcastEntrywise {α : Type u} [Inhabited α] {s₁ s₂ s₃ : List Nat} (f : NDMatrix α s₁ → NDMatrix α s₂ → NDMatrix α s₃) : {shapePrefix : List Nat} → NDMatrix α (shapePrefix ++ s₁) → NDMatrix α (shapePrefix ++ s₂) → NDMatrix α (shapePrefix ++ s₃)
+| [] => f
+| _::l => fun x y => fun i => NDMatrix.broadcastEntrywise f (shapePrefix := l) (x i) (y i)
+
+def NDMatrix.triu (d : Nat) : NDMatrix ℝ [d, d] := (fun i j => if j ≤ i then 1 else 0)
+
+instance NDMatrix.instNonempty {α : Type u} [Nonempty α] : {shape : List Nat} → Nonempty (NDMatrix α shape)
   | [] => inferInstance
   | _ :: shape => letI := instNonempty (α := α) (shape := shape); inferInstance
 
-instance {α : Type u} [Sub α] {shape : (List Nat)} : Sub (NDMatrix α shape) := ⟨NDMatrix.entrywise (· - · : α → α → α)⟩
+instance NDMatrix.instSub {α : Type u} [Sub α] {shape : (List Nat)} : Sub (NDMatrix α shape) := ⟨NDMatrix.entrywise (· - · : α → α → α)⟩
 
 
-instance {α : Type u} [Mul α] {shape : (List Nat)} : Mul (NDMatrix α shape) := ⟨NDMatrix.entrywise (· * · : α → α → α)⟩
+instance NDMatrix.instMul {α : Type u} [Mul α] {shape : (List Nat)} : Mul (NDMatrix α shape) := ⟨NDMatrix.entrywise (· * · : α → α → α)⟩
 
-instance{α : Type u} [Sub α] : Sub (NDMatrix α [0]) := by infer_instance
+instance {α : Type u} [Sub α] : Sub (NDMatrix α [0]) := by infer_instance
 
 
 def List.shapesize (shape : List Nat) :  Nat := List.foldr (· * ·) 1 shape
