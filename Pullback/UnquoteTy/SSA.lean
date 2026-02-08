@@ -28,6 +28,7 @@ inductive SSAConst where
 | eq (ty : SSABaseType) : SSAConst
 | and : SSAConst
 | or: SSAConst
+deriving DecidableEq
 
 inductive SSAExpr where
 | const : SSAConst → SSAExpr
@@ -283,7 +284,7 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
     }) (cast (by simp) <| ctx.push val))
 
 
-def SSAExpr.interp? (vars : VarMap) : (e : SSAExpr) → DVector (Array.toList (vars.map (·.2.type))) → (match e.inferType vars with
+def SSAExpr.interp! (vars : VarMap) : (e : SSAExpr) → DVector (Array.toList (vars.map (·.2.type))) → (match e.inferType vars with
 | some ty => ty.type
 | none => Unit) := fun e ctx =>
     match he : e.inferType vars with
@@ -396,10 +397,95 @@ def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Optio
     SSAExpr.letE nKContinue continue' <|
     SSAExpr.app (SSAExpr.app (SSAExpr.app (.const (.ifthenelse tExprType)) cond) (← t.toSSAExpr vars mutVars kbreak nKContinue)) (← e.toSSAExpr vars mutVars kbreak nKContinue)
 
-def SSADo.eval (args : VarMap) : SSADo → DVector (args.map (·.2.type)).toList → Option (SSAConst) := sorry
+#check SSADo
 
+def SSAExpr.eval (args : Arr): SSAExpr → Option SSAConst := sorry
 
-#check HasEquiv
+#check (failure : Option Nat)
+#check Option.all_bind
+
+def SSADo.loopStep (args : Array (Name × SSAConst)) (mutvars : Array (Name × SSAConst)) : SSADo → Option (ForInStep SSAConst) := sorry
+
+inductive LoopStep where
+| continue (mutvars : Array (Name × SSAConst)) : LoopStep
+| break (mutvars : Array (Name × SSAConst)) : LoopStep
+
+inductive DoResult (α : Type) where
+/- early return-/
+| return (a : SSAConst) : DoResult α
+| pure (a : α) : DoResult α
+
+#check StateT.run_modify
+
+def SSADo.eval (args : Array (Name × SSAConst)) (inloop : Bool := false) : SSADo → StateT (Array (Name × SSAConst)) Option (DoResult (if !inloop then SSAConst else LoopStep))
+| expr x => do
+    let c ← x.eval args
+    if h : !inloop then
+        some (DoResult.pure (cast (by grind) c))
+    else
+        -- since all break, continue, return are trailing, expr will only be with inloop := true if it is a trailing expr
+        some (DoResult.pure (cast (by grind) (LoopStep.continue (← get))))
+/- todo :: don't discard s₁ after switching to non identity monad -/
+-- note that all break, continue, return will be trailing in their respective scopes so s₁ can be evaluated with inloop := false
+| seq s₁ s₂ => s₂.eval args inloop
+| letE var val rest => do
+    -- cannot shadow mutvars
+    if (← get).any (·.1 == var) then
+        failure
+    rest.eval (args.push (var, ← val.eval args)) inloop
+| letM var val rest => do
+    if args.any (·.1 == var) then
+        failure
+    modify (·.push (var, ← val.eval args))
+    rest.eval (args.push (var, ← val.eval args)) inloop
+| assign var val rest => do
+    let mutvars ← get
+    let idx ← (mutvars).findFinIdx? (·.1 == var)
+    set (mutvars.set idx (var, ← val.eval args))
+    rest.eval args inloop
+| loop body rest => do
+    while true do
+        match (← body.eval args true) with
+        | .return x => return .return x
+        | .pure x =>
+            match x with
+            | .continue x => set x
+            | .break x =>
+                set x
+                break
+    rest.eval args inloop
+| .break => do  if h : inloop then some (DoResult.pure (cast (by grind) (LoopStep.break (← get)))) else none
+| .continue => do if h : inloop then some (DoResult.pure (cast (by grind) (LoopStep.continue (← get)))) else none
+| .return x => do  some (DoResult.return (← x.eval args))
+| ifthenelse c t e rest => do
+    let res ←
+        if c.eval args != SSAConst.ofInt (0 : Int) then
+            t.eval args inloop
+        else
+            e.eval args inloop
+    match res with
+    | .return x => some <| .return x
+    | .pure x =>  some (← rest.eval args inloop)
+
+#check HEq
 
 /- if deep embedding evaluates to a const it will evaluate to the same value of given by the shallow embedding -/
-theorem SSADo.eval_eq_toexpr_interp (args : VarMap) (prog : SSADo) : ∀ input, ∀ x, prog.eval args input = some x → ∃ y, prog.toSSAExpr args #[] none none = some y ∧ x.interp ≍ y.interp? args := sorry
+-- theorem SSADo.eval_eq_toexpr_interp (args : VarMap) (prog : SSADo) : ∀ input, ∀ x, prog.eval args input = some x → ∃ y, prog.toSSAExpr args #[] none none = some y ∧ x.interp ≍ y.interp! args := sorry
+
+/-
+     IR.eval
+   IR ----> Const
+   |
+   |           ==
+   |
+   V     SSADO.eval
+   SSADo ----> Const
+-/
+/-
+    IR --> (SSADo ---> SSAExpr ----> Const) = IR --> (SSADo ---> Const)
+    IR ---> SSADo ---> Const = IR ---> Const
+
+    translation : IR ---> Lean.Expr
+    proof of equivalence : IR ---> Lean.Expr
+-/
+-- IR deep embedding
