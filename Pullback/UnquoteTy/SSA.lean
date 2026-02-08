@@ -19,7 +19,7 @@ inductive SSAConst where
 | ofFloat : Rat → SSAConst
 | ofInt : Int → SSAConst
 | ofUnit : Unit → SSAConst
-| loop (ty : SSAType) : SSAConst
+| loop (ty out : SSAType) : SSAConst
 | prod (α β : SSAType) : SSAConst
 | prod₁ (α β : SSAType) : SSAConst
 | prod₂ (α β : SSAType) : SSAConst
@@ -81,9 +81,9 @@ def SSAConst.inferType : SSAConst → SSAType
 | ofFloat _ => .ofBase .float
 | ofInt _ => .ofBase .int
 | ofUnit _ => .ofBase .unit
-| loop ty => .fun (ty) <|
-        .fun (.fun (ty) (.fun (.fun ty ty) ty))
-        ty
+| loop ty out => .fun (ty) <|
+        .fun (.fun (ty) (.fun (.fun ty out) out))
+        out
 
     -- the step function takes in a kcontinue continuation and returns ty (loop in CPS form)
 | prod α β => .fun α (.fun β (.prod α β))
@@ -185,7 +185,7 @@ def SSAConst.interp : (e : SSAConst) → (e.inferType).type
 | ofInt i => i
 | ofUnit () => ()
 | ifthenelse ty => fun c t e => if (cast (by simp [SSAType.type, SSABaseType.type]) c : Int) != 0 then t else e
-| loop ty => SSA.loop (α := ty.type) (m := Id)
+| loop ty out => SSA.loop (m := Id)
 | prod α β => (@Prod.mk α.type β.type)
 | prod₁ α β => fun ab => ab.1
 | prod₂ α β => fun ab => ab.2
@@ -370,13 +370,18 @@ def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Optio
     let (mutTuple, mutTupleType) := (mkMutTuple mutVars)
     let bodyMutVars : Array Name  := body.collectMutVars
     let nS : Name := freshName (Array.append (mutVars.map (·.1)) bodyMutVars) `s
-    let breakNew : SSAExpr ← SSAExpr.lam nS mutTupleType <| (destructMutTuple `s mutVars (← rest.toSSAExpr vars mutVars kbreak kcontinue))
+    let restExpr ← rest.toSSAExpr vars mutVars kbreak kcontinue
+    let breakNew : SSAExpr ← SSAExpr.lam nS mutTupleType <| (destructMutTuple `s mutVars restExpr)
     let nKBreak : Name := freshName (mutVars.map (·.1)) `kbreak
     let nKContinue : Name := freshName (mutVars.map (·.1)) `kcontinue
     -- todo :: modify mutvars passed into toSSAExpr for body
-    let body' : SSAExpr ← destructMutTuple nS mutVars (← body.toSSAExpr vars mutVars nKBreak nKContinue)
+    let bodyExpr ← body.toSSAExpr vars mutVars nKBreak nKContinue
+    let body' : SSAExpr ← destructMutTuple nS mutVars bodyExpr
+    let bodyType ← bodyExpr.inferType vars
+    if (← restExpr.inferType vars) != bodyType then
+        none
     SSAExpr.letE nKBreak breakNew <|
-        SSAExpr.app (SSAExpr.app (SSAExpr.const (SSAConst.loop mutTupleType)) (SSAExpr.lam nKContinue (SSAType.fun mutTupleType (SSAType.ofBase .unit)) (SSAExpr.lam nS mutTupleType body'))) mutTuple
+        SSAExpr.app (SSAExpr.app (SSAExpr.const (SSAConst.loop mutTupleType bodyType)) (SSAExpr.lam nKContinue (SSAType.fun mutTupleType (SSAType.ofBase .unit)) (SSAExpr.lam nS mutTupleType body'))) mutTuple
 | .break => do
     let mutTuple : SSAExpr := (mkMutTuple mutVars).1
     SSAExpr.app (SSAExpr.var (← kbreak)) mutTuple
