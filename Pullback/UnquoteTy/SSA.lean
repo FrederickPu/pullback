@@ -152,8 +152,7 @@ theorem Array.find?_eq_getElem_findFinIdx? {α : Type u} (xs : Array α) (p : α
     · grind
 
 #check ForIn
--- (a : α, true) means break (a : α, false) means continue
-def SSA.loop {α : Type u} [Inhabited α] (init : α) (step : α → (α → α) → α) : α := sorry
+def SSA.loop {α β : Type u} {m : Type u → Type v} [Monad m] [Inhabited α] (init : α) (step : α → (α → m β) → m β) : m β := sorry
 
 private def SSABaseType.decEq : (ty : SSABaseType) → DecidableEq ty.type
 | float => by
@@ -186,7 +185,7 @@ def SSAConst.interp : (e : SSAConst) → (e.inferType).type
 | ofInt i => i
 | ofUnit () => ()
 | ifthenelse ty => fun c t e => if (cast (by simp [SSAType.type, SSABaseType.type]) c : Int) != 0 then t else e
-| loop ty => SSA.loop (α := ty.type)
+| loop ty => SSA.loop (α := ty.type) (m := Id)
 | prod α β => (@Prod.mk α.type β.type)
 | prod₁ α β => fun ab => ab.1
 | prod₂ α β => fun ab => ab.2
@@ -414,6 +413,9 @@ inductive DoResult (α : Type) where
 /- early return-/
 | return (a : SSAConst) : DoResult α
 | pure (a : α) : DoResult α
+deriving Inhabited
+
+instance : Inhabited (DoResult (if (!inloop) = true then SSAConst else LoopStep)) := sorry
 
 #check StateT.run_modify
 
@@ -444,16 +446,16 @@ def SSADo.eval (args : Array (Name × SSAConst)) (inloop : Bool := false) : SSAD
     set (mutvars.set idx (var, ← val.eval args))
     rest.eval args inloop
 | loop body rest => do
-    while true do
+    SSA.loop Unit.unit (fun x kcontinue => do
         match (← body.eval args true) with
-        | .return x => return .return x
+        | .return x => pure (DoResult.return x)
         | .pure x =>
             match x with
-            | .continue x => set x
+            | .continue x => set x; kcontinue ()
             | .break x =>
                 set x
-                break
-    rest.eval args inloop
+                rest.eval args inloop
+    )
 | .break => do  if h : inloop then some (DoResult.pure (cast (by grind) (LoopStep.break (← get)))) else none
 | .continue => do if h : inloop then some (DoResult.pure (cast (by grind) (LoopStep.continue (← get)))) else none
 | .return x => do  some (DoResult.return (← x.eval args))
