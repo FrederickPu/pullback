@@ -362,7 +362,10 @@ def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Optio
 | expr e =>
     match kcontinue with
     | some _ => none -- loop body should not end in non unit type
-    | none => e
+    | none => do
+        -- e needs to be well typed
+        let _ ← e.inferType vars
+        some e
 | seq s₁ s₂ => do pure <| SSAExpr.letE (freshName (Array.append s₁.collectMutVars s₂.collectMutVars) `x) (← s₁.toSSAExpr vars mutVars kbreak kcontinue) (← s₂.toSSAExpr vars mutVars kbreak kcontinue)
 | letE var val rest => do pure <| SSAExpr.letE var val (← rest.toSSAExpr (vars.push (var, ← val.inferType vars)) mutVars kbreak kcontinue)
 | letM var val rest => do pure <| SSAExpr.letE var val (← rest.toSSAExpr (vars.push (var, ← val.inferType vars)) (mutVars.push (var, ← val.inferType vars)) kbreak kcontinue)
@@ -415,20 +418,35 @@ def SSAType.funCodom? : SSAType → Option SSAType
 | .fun _ β => β
 | _ => none
 
+theorem SSAExpr.welltyped_app_iff (vars : VarMap) (f x : SSAExpr) : ((f.app x).inferType vars).isSome ↔ (do pure ((← f.inferType vars).funDom? = (← x.inferType vars))) = some True := sorry
+
 #check Option.getD
+
+/-
+    name `k` referes to a valid continutation for the current mutvars
+-/
+def SSADo.validContinutation (vars : VarMap) (mutVars : VarMap) (k : Name) := (do pure <| (← vars.get k).funDom? = (mkMutTuple mutVars).2) = some true
 
 /-
     `k` is the name of a valid continuation or none
 -/
-def SSADo.validContinutation (vars : VarMap) (mutVars : VarMap) (k : Option Name) := (do pure <| (← vars.get (← k)).funDom? = (mkMutTuple mutVars).2) = some true ∨ k = none
+def SSADo.validContinutationRef (vars : VarMap) (mutVars : VarMap) (k : Option Name) :=
+    match k with
+    | some k' => validContinutation vars mutVars k'
+    | none => True
 
 
-theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Option Name) (hkBreak : validContinutation vars mutVars kbreak) (hkContinue : validContinutation vars mutVars kbreak) (hMut₁ : (mutVars.toList.map (·.1)).Nodup) (hMut₂ : mutVars.toList ⊆ vars.toList) (hMut₃ : ∀ mutvar ∈ mutVars.toList, ∃! var ∈ vars.toList, var.1 = mutvar.1) : (prog : SSADo) → (hp : (prog.toSSAExpr vars mutVars kbreak kcontinue).isSome) → (((prog.toSSAExpr vars mutVars kbreak kcontinue).get hp).inferType vars).isSome
+theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Option Name) (hkBreak : validContinutationRef vars mutVars kbreak) (hkContinue : validContinutationRef vars mutVars kcontinue) (hMut₁ : (mutVars.toList.map (·.1)).Nodup) (hMut₂ : mutVars.toList ⊆ vars.toList) (hMut₃ : ∀ mutvar ∈ mutVars.toList, ∃! var ∈ vars.toList, var.1 = mutvar.1) : (prog : SSADo) → (hp : (prog.toSSAExpr vars mutVars kbreak kcontinue).isSome) → (((prog.toSSAExpr vars mutVars kbreak kcontinue).get hp).inferType vars).isSome
 | .expr (.const (.ofUnit ())) => by
     unfold toSSAExpr
     cases hkc : kcontinue with
     | none => simp [SSAExpr.inferType]
-    | some x => sorry
+    | some x =>
+        simp
+        rw [SSAExpr.welltyped_app_iff, SSAExpr.inferType]
+        simp [validContinutationRef, hkc, validContinutation] at hkContinue
+
+
 | _ => sorry
 
 #check SSADo
