@@ -405,8 +405,30 @@ def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Optio
 #check List.Nodup
 #check List.instHasSubset
 
-theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Option Name) (hMut₁ : (mutVars.toList.map (·.1)).Nodup) (hMut₂ : mutVars.toList ⊆ vars.toList) (hMut₃ : ∀ mutvar ∈ mutVars.toList, ∃! var ∈ vars.toList, var.1 = mutvar.1) : (prog : SSADo) → (hp : (prog.toSSAExpr vars mutVars kbreak kcontinue).isSome) → (((prog.toSSAExpr vars mutVars kbreak kcontinue).get hp).inferType vars).isSome
-| .expr e => sorry
+-- returns domain of function type if the type is a function type
+def SSAType.funDom? : SSAType → Option SSAType
+| .fun α _ => α
+| _ => none
+
+-- returns codomain of function type if the type is a function type
+def SSAType.funCodom? : SSAType → Option SSAType
+| .fun _ β => β
+| _ => none
+
+#check Option.getD
+
+/-
+    `k` is the name of a valid continuation or none
+-/
+def SSADo.validContinutation (vars : VarMap) (mutVars : VarMap) (k : Option Name) := (do pure <| (← vars.get (← k)).funDom? = (mkMutTuple mutVars).2) = some true ∨ k = none
+
+
+theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Option Name) (hkBreak : validContinutation vars mutVars kbreak) (hkContinue : validContinutation vars mutVars kbreak) (hMut₁ : (mutVars.toList.map (·.1)).Nodup) (hMut₂ : mutVars.toList ⊆ vars.toList) (hMut₃ : ∀ mutvar ∈ mutVars.toList, ∃! var ∈ vars.toList, var.1 = mutvar.1) : (prog : SSADo) → (hp : (prog.toSSAExpr vars mutVars kbreak kcontinue).isSome) → (((prog.toSSAExpr vars mutVars kbreak kcontinue).get hp).inferType vars).isSome
+| .expr (.const (.ofUnit ())) => by
+    unfold toSSAExpr
+    cases hkc : kcontinue with
+    | none => simp [SSAExpr.inferType]
+    | some x => sorry
 | _ => sorry
 
 #check SSADo
