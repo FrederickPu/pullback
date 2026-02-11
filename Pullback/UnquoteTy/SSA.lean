@@ -420,7 +420,7 @@ def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Optio
     let restMutVars : Array Name := rest.collectMutVars
     let nS : Name := freshName (Array.append (mutVars.map (·.1)) restMutVars) `s
     -- todo :: pass expanded mutvars into toSSAExpr
-    let continue' ← (SSAExpr.lam nS mutTupleType <| destructMutTuple nS mutVars (← rest.toSSAExpr vars mutVars kbreak kcontinue))
+    let continue' ← (SSAExpr.lam nS mutTupleType <| destructMutTuple nS mutVars (← rest.toSSAExpr (vars.push (nS, mutTupleType)) mutVars kbreak kcontinue))
     if (← cond.inferType vars) != SSAType.ofBase .int then
         none
     let texpr ← t.toSSAExpr vars mutVars kbreak nKContinue
@@ -430,7 +430,7 @@ def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Optio
     if tExprType != eExprType then
         none
     SSAExpr.letE nKContinue continue' <|
-    SSAExpr.app (SSAExpr.app (SSAExpr.app (.const (.ifthenelse tExprType)) cond) (← t.toSSAExpr vars mutVars kbreak nKContinue)) (eExpr)
+    SSAExpr.app (SSAExpr.app (SSAExpr.app (.const (.ifthenelse tExprType)) cond) texpr) (eExpr)
 
 #check List.Nodup
 #check List.instHasSubset
@@ -476,6 +476,7 @@ theorem Std.Do.Option.of_wp_eq {α} {x prog : Option α} (h : prog = x) (P : Opt
     SPred.down_pure] at hspec
   split at hspec <;> exact hspec True.intro
 
+theorem SSAExpr.inferType_eq_of_hygenic (vars : VarMap) (newvar : Name) (newVarType : SSAType) (hHygenic : ¬ vars.any (·.1 = newvar)) (expr : SSAExpr) : (expr.inferType vars).isSome → expr.inferType (vars.push (newvar, newVarType)) = expr.inferType vars := sorry
 
 theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Option Name) (hkBreak : validContinutationRef vars mutVars kbreak) (hkContinue : validContinutationRef vars mutVars kcontinue) (hMut₁ : (mutVars.toList.map (·.1)).Nodup) (hMut₂ : mutVars.toList ⊆ vars.toList) (hMut₃ : ∀ mutvar ∈ mutVars.toList, ∃! var ∈ vars.toList, var.1 = mutvar.1) : (prog : SSADo) → (hp : (prog.toSSAExpr vars mutVars kbreak kcontinue).isSome) → (((prog.toSSAExpr vars mutVars kbreak kcontinue).get hp).inferType vars).isSome
 | .expr e => by
@@ -545,21 +546,26 @@ theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kco
     intro hp
     simp [toSSAExpr, Option.isSome_iff_exists, Option.bind_eq_some_iff] at hp
     obtain ⟨_, restExpr, hRestExpr, cType, hcType, hcType', tExpr, htExpr, tExprType, htExprType, eExpr, heExpr, eExprType, heExprType, heq, _⟩ := hp
-    have crux := toSSAExpr_wellTyped vars mutVars kbreak kcontinue sorry sorry sorry sorry sorry rest (by grind)
-    simp [hRestExpr, Option.isSome_iff_exists] at crux
+    let restMutVars : Array Name := rest.collectMutVars
+    let nS : Name := freshName (Array.append (mutVars.map (·.1)) restMutVars) `s
+    have crux := toSSAExpr_wellTyped (vars.push (nS, (mkMutTuple mutVars).2)) mutVars kbreak kcontinue sorry sorry sorry sorry sorry rest (by simp [hRestExpr, nS, restMutVars])
+    simp [nS, restMutVars, hRestExpr, Option.isSome_iff_exists] at crux
     obtain ⟨restExprType, hRestExprType⟩ := crux
     simp [toSSAExpr, SSAExpr.inferType, hcType, hcType', hRestExpr, htExpr, htExprType, heExpr, heExprType]
     have : (SSAExpr.inferType
               (Array.push vars
                 (freshName (Array.map (fun x => x.fst) mutVars ++ rest.collectMutVars) `s, (mkMutTuple mutVars).snd))
               (destructMutTuple (freshName (Array.map (fun x => x.fst) mutVars ++ rest.collectMutVars) `s) mutVars
-                restExpr)) = SSAExpr.inferType vars restExpr := sorry
-    simp [this, hRestExprType]
+                restExpr)) = SSAExpr.inferType (vars.push (nS, (mkMutTuple mutVars).2)) restExpr := sorry
+    simp [this, nS, restMutVars, hRestExprType]
     have : (SSAExpr.inferType
                   (Array.push vars
                     (freshName (Array.map (fun x => x.fst) mutVars) `kcontinue,
                       (mkMutTuple mutVars).snd.fun restExprType))
-                  c) = SSAExpr.inferType vars c := sorry
+                  c) = SSAExpr.inferType vars c := by
+        apply SSAExpr.inferType_eq_of_hygenic
+        sorry
+        simp [hcType]
     simp [this, hcType, SSAConst.inferType, hcType']
     have : (SSAExpr.inferType
               (Array.push vars
