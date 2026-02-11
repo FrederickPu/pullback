@@ -421,10 +421,16 @@ def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Optio
     let nS : Name := freshName (Array.append (mutVars.map (·.1)) restMutVars) `s
     -- todo :: pass expanded mutvars into toSSAExpr
     let continue' ← (SSAExpr.lam nS mutTupleType <| destructMutTuple nS mutVars (← rest.toSSAExpr vars mutVars kbreak kcontinue))
+    if (← cond.inferType vars) != SSAType.ofBase .int then
+        none
     let texpr ← t.toSSAExpr vars mutVars kbreak nKContinue
     let tExprType ← texpr.inferType vars
+    let eExpr ← e.toSSAExpr vars mutVars kbreak nKContinue
+    let eExprType ← eExpr.inferType vars
+    if tExprType != eExprType then
+        none
     SSAExpr.letE nKContinue continue' <|
-    SSAExpr.app (SSAExpr.app (SSAExpr.app (.const (.ifthenelse tExprType)) cond) (← t.toSSAExpr vars mutVars kbreak nKContinue)) (← e.toSSAExpr vars mutVars kbreak nKContinue)
+    SSAExpr.app (SSAExpr.app (SSAExpr.app (.const (.ifthenelse tExprType)) cond) (← t.toSSAExpr vars mutVars kbreak nKContinue)) (eExpr)
 
 #check List.Nodup
 #check List.instHasSubset
@@ -535,6 +541,36 @@ theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kco
 | .return out => by
     intro hp
     grind [toSSAExpr, Option.isSome_iff_exists, Option.bind_eq_some_iff]
+| .ifthenelse c t e rest => by
+    intro hp
+    simp [toSSAExpr, Option.isSome_iff_exists, Option.bind_eq_some_iff] at hp
+    obtain ⟨_, restExpr, hRestExpr, cType, hcType, hcType', tExpr, htExpr, tExprType, htExprType, eExpr, heExpr, eExprType, heExprType, heq, _⟩ := hp
+    have crux := toSSAExpr_wellTyped vars mutVars kbreak kcontinue sorry sorry sorry sorry sorry rest (by grind)
+    simp [hRestExpr, Option.isSome_iff_exists] at crux
+    obtain ⟨restExprType, hRestExprType⟩ := crux
+    simp [toSSAExpr, SSAExpr.inferType, hcType, hcType', hRestExpr, htExpr, htExprType, heExpr, heExprType]
+    have : (SSAExpr.inferType
+              (Array.push vars
+                (freshName (Array.map (fun x => x.fst) mutVars ++ rest.collectMutVars) `s, (mkMutTuple mutVars).snd))
+              (destructMutTuple (freshName (Array.map (fun x => x.fst) mutVars ++ rest.collectMutVars) `s) mutVars
+                restExpr)) = SSAExpr.inferType vars restExpr := sorry
+    simp [this, hRestExprType]
+    have : (SSAExpr.inferType
+                  (Array.push vars
+                    (freshName (Array.map (fun x => x.fst) mutVars) `kcontinue,
+                      (mkMutTuple mutVars).snd.fun restExprType))
+                  c) = SSAExpr.inferType vars c := sorry
+    simp [this, hcType, SSAConst.inferType, hcType']
+    have : (SSAExpr.inferType
+              (Array.push vars
+                (freshName (Array.map (fun x => x.fst) mutVars) `kcontinue, (mkMutTuple mutVars).snd.fun restExprType))
+              tExpr) = SSAExpr.inferType vars tExpr := sorry
+    simp [this, htExprType]
+    have : (SSAExpr.inferType
+          (Array.push vars
+            (freshName (Array.map (fun x => x.fst) mutVars) `kcontinue, (mkMutTuple mutVars).snd.fun restExprType))
+          eExpr) = SSAExpr.inferType vars eExpr := sorry
+    simp [this, heExprType, heq]
 | _ => sorry
 
 #check SSADo
