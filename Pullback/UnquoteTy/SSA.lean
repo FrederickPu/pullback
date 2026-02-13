@@ -1,6 +1,6 @@
 import Lean
 import Mathlib.Logic.ExistsUnique
-import Std.Tactic.Do
+import Mathlib.Data.Fin.Tuple.Basic
 
 open Lean
 
@@ -78,6 +78,10 @@ Fin.last' - Fin.cast (size_reverse) res) (as.reverse.findFinIdx? p)
 
 def VarMap.get (map : VarMap) (key : Name) : Option SSAType :=
     map.findLast? (·.1 = key) |>.map (·.2)
+
+theorem VarMap.get_push (vars : VarMap) (last : Name × SSAType) (key : Name) : (cast (β := VarMap) rfl (vars.push last)).get key = if last.1 = key then some last.2 else vars.get key := sorry
+
+theorem VarMap.get_eq_some_iff_any (vars : VarMap) (key : Name) (a : SSAType) : vars.get key = some a ↔ vars.any (·.1 = key) := sorry
 
 def SSAConst.inferType : SSAConst → SSAType
 | ofFloat _ => .ofBase .float
@@ -300,6 +304,23 @@ def mkMutTuple : VarMap → SSAExpr × SSAType
     (.app (.app (.const (.prod type rightType)) (.var name)) rightExpr, .prod type rightType)
 termination_by as => as.size
 
+#check getElem
+#check Array.findFinIdx?_eq_some_iff
+-- #check Fin.find_eq_some_iff
+theorem SSAExpr.inferType_mkMutTuple (vars : VarMap) : (mutVars : VarMap) → (h : mutVars.toList ⊆ vars.toList) → (h' : ∀ x ∈ mutVars.toList, ∃! y ∈ vars.toList, x.1 = y.1) → (mkMutTuple mutVars).fst.inferType vars = (mkMutTuple mutVars).snd
+| ⟨[]⟩ => by simp [inferType, mkMutTuple, SSAConst.inferType]
+| ⟨[(name, type)]⟩ => by
+    simp [inferType, mkMutTuple, VarMap.get]
+    intro h ⟨i, hi, H⟩
+    obtain ⟨hi, hhi⟩ := hi
+    sorry
+| ⟨(name, type)::b::l⟩ => by
+    intro h h'
+    simp at h'
+    simp [mkMutTuple]
+    sorry
+termination_by as => as.size
+
 def destructMutTuple (tupleName : Name) : VarMap → SSAExpr → SSAExpr
 | ⟨[]⟩, body => body
 | ⟨[(name, _)]⟩, body => .letE name (.var tupleName) body
@@ -381,7 +402,10 @@ def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Optio
     let valT ← val.inferType vars
     return SSAExpr.letE var val (← rest.toSSAExpr (vars.push (var, valT)) (mutVars.push (var, valT)) kbreak kcontinue)
 | assign var val rest => do
+    let varT ← mutVars.get var
     let valT ← val.inferType vars
+    if valT != varT then
+        none
     return SSAExpr.letE var val (← rest.toSSAExpr (vars.push (var, valT)) mutVars kbreak kcontinue)
 | loop body rest => do
     let (mutTuple, mutTupleType) := (mkMutTuple mutVars)
@@ -452,7 +476,7 @@ theorem SSAExpr.welltyped_app_iff (vars : VarMap) (f x : SSAExpr) : ((f.app x).i
 /-
     name `k` referes to a valid continutation for the current mutvars
 -/
-def SSADo.validContinutation (vars : VarMap) (mutVars : VarMap) (k : Name) := (do pure <| (← vars.get k).funDom? = (mkMutTuple mutVars).2) = some true
+def SSADo.validContinutation (vars : VarMap) (mutVars : VarMap) (k : Name) := ¬ mutVars.any (·.1 = k) ∧ (do pure <| (← vars.get k).funDom? = (mkMutTuple mutVars).2) = some true
 
 /-
     `k` is the name of a valid continuation or none
@@ -462,23 +486,9 @@ def SSADo.validContinutationRef (vars : VarMap) (mutVars : VarMap) (k : Option N
     | some k' => validContinutation vars mutVars k'
     | none => True
 
-open Std Do
-/--
-Adequacy lemma for `Option`.
-Useful if you want to prove a property about a complex expression `prog : Option α` that you have
-generalized to a variable `x` and you want to use `mvcgen` to reason about `prog`.
--/
-theorem Std.Do.Option.of_wp_eq {α} {x prog : Option α} (h : prog = x) (P : Option α → Prop) :
-    (⊢ₛ wp⟦prog⟧ post⟨fun a => ⌜P (some a)⌝, fun _ => ⌜P none⌝⟩) → P x := by
-  subst h
-  intro hspec
-  simp only [wp, Id.run, PredTrans.pushOption_apply, PredTrans.pure_apply, SPred.entails_nil,
-    SPred.down_pure] at hspec
-  split at hspec <;> exact hspec True.intro
-
 theorem SSAExpr.inferType_eq_of_hygenic (vars : VarMap) (newvar : Name) (newVarType : SSAType) (hHygenic : ¬ vars.any (·.1 = newvar)) (expr : SSAExpr) : (expr.inferType vars).isSome → expr.inferType (vars.push (newvar, newVarType)) = expr.inferType vars := sorry
 
-theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Option Name) (hkBreak : validContinutationRef vars mutVars kbreak) (hkContinue : validContinutationRef vars mutVars kcontinue) (hMut₁ : (mutVars.toList.map (·.1)).Nodup) (hMut₂ : mutVars.toList ⊆ vars.toList) (hMut₃ : ∀ mutvar ∈ mutVars.toList, ∃! var ∈ vars.toList, var.1 = mutvar.1) : (prog : SSADo) → (hp : (prog.toSSAExpr vars mutVars kbreak kcontinue).isSome) → (((prog.toSSAExpr vars mutVars kbreak kcontinue).get hp).inferType vars).isSome
+theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Option Name) (hkBreak : validContinutationRef vars mutVars kbreak) (hkContinue : validContinutationRef vars mutVars kcontinue) (hMut₁ : (mutVars.toList.map (·.1)).Nodup) (hMut₂ : mutVars.toList ⊆ vars.toList) (hMut₃ : ∀ x ∈ mutVars.toList, ∃! y ∈ vars.toList, x.1 = y.1) : (prog : SSADo) → (hp : (prog.toSSAExpr vars mutVars kbreak kcontinue).isSome) → (((prog.toSSAExpr vars mutVars kbreak kcontinue).get hp).inferType vars).isSome
 | .expr e => by
     intro hp
     simp [toSSAExpr] at hp
@@ -487,7 +497,7 @@ theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kco
     match hkc : kcontinue with
     | some kc =>
         simp [validContinutationRef, validContinutation, Option.bind_eq_some_iff] at hkContinue
-        obtain ⟨fkc, hfkc⟩ := hkContinue
+        obtain ⟨_, fkc, hfkc⟩ := hkContinue
         have crux : (SSAExpr.inferType vars (mkMutTuple mutVars).fst) = (mkMutTuple mutVars).snd := sorry
         obtain ⟨β, hb⟩ : ∃ β, fkc = .fun (mkMutTuple mutVars).snd β := sorry
         simp [toSSAExpr, SSAExpr.inferType, crux, hfkc, hb]
@@ -498,8 +508,8 @@ theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kco
     match hv : mutVars.any (·.1 = var) with
     | false =>
         simp [toSSAExpr, hv, Option.isSome_iff_exists, Option.bind_eq_some_iff] at hp
-        obtain ⟨a, varT, hvarT, a2, ha2⟩ := hp
-        have := toSSAExpr_wellTyped (vars.push (var, varT)) mutVars kbreak kcontinue sorry sorry sorry sorry sorry rest (by simp [ha2.1])
+        obtain ⟨varT, hvarT, a2, ha2⟩ := hp
+        have := toSSAExpr_wellTyped (vars.push (var, varT)) mutVars kbreak kcontinue sorry sorry sorry sorry sorry rest (by simp [ha2])
         grind [toSSAExpr, SSAExpr.inferType, Option.isSome_iff_exists]
     | true =>
         simp [toSSAExpr, hv] at hp
@@ -507,25 +517,90 @@ theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kco
     intro hp
     match hv : mutVars.any (·.1 = var) with
     | false =>
-        simp [toSSAExpr, hv, Option.isSome_iff_exists, Option.bind_eq_some_iff] at hp
-        obtain ⟨a, varT, hvarT, a2, ha2⟩ := hp
-        have := toSSAExpr_wellTyped (vars.push (var, varT)) (mutVars.push (var, varT)) kbreak kcontinue sorry sorry sorry sorry sorry rest (by simp [ha2.1])
+        simp only [toSSAExpr, hv, Bool.false_eq_true, ↓reduceIte, Option.pure_def,
+          Option.bind_eq_bind, Option.bind_some, Option.isSome_iff_exists, Option.bind_eq_some_iff,
+          Option.some.injEq, ↓existsAndEq, and_true, exists_and_left] at hp
+        obtain ⟨varT, hvarT, a2, ha2⟩ := hp
+        have := toSSAExpr_wellTyped (vars.push (var, varT)) (mutVars.push (var, varT)) kbreak kcontinue sorry sorry sorry sorry sorry rest (by simp [ha2])
         grind [toSSAExpr, SSAExpr.inferType, Option.isSome_iff_exists]
     | true =>
         simp [toSSAExpr, hv] at hp
 | .assign var val rest => by
     intro hp
-    simp [toSSAExpr, Option.isSome_iff_exists, Option.bind_eq_some_iff] at hp
-    obtain ⟨a, varT, hvarT, a2, ha2⟩ := hp
-    have := toSSAExpr_wellTyped (vars.push ⟨var, varT⟩) mutVars kbreak kcontinue sorry sorry sorry sorry sorry rest (by grind)
-    grind [toSSAExpr, SSAExpr.inferType, Option.isSome_iff_exists]
+    simp only [toSSAExpr, bne_iff_ne, ne_eq, Option.pure_def, Option.bind_eq_bind, Option.bind_none,
+      Option.bind_some, ite_not, Option.isSome_iff_exists, Option.bind_eq_some_iff,
+      Option.ite_none_right_eq_some, Option.some.injEq, ↓existsAndEq, true_and, and_true,
+      exists_and_left] at hp
+    obtain ⟨varT, hvarT, HT, restExpr, hRestExpr⟩ := hp
+    have := toSSAExpr_wellTyped (vars.push ⟨var, varT⟩) mutVars kbreak kcontinue (by {
+        cases hkb : kbreak with
+        | some kbreak' =>
+            simp only [validContinutationRef, validContinutation, Option.pure_def, Option.bind_eq_bind]
+            have := VarMap.get_push vars (var, varT) kbreak'
+            simp only [cast_eq] at this
+            simp [this]
+            simp [validContinutationRef, hkb] at hkBreak
+            have : var ≠ kbreak' := by
+                intro hh
+                rw [hh, VarMap.get_eq_some_iff_any] at hvarT
+                have := hkBreak.1
+                rw [← hh] at this
+                grind
+            simp [this]
+            simp [validContinutation] at hkBreak
+            grind
+        | none => simp only [validContinutationRef]
+    }) (by {
+        cases hkb : kcontinue with
+        | some kbreak' =>
+            simp only [validContinutationRef, validContinutation, Option.pure_def, Option.bind_eq_bind]
+            have := VarMap.get_push vars (var, varT) kbreak'
+            simp only [cast_eq] at this
+            simp [this]
+            simp [validContinutationRef, hkb] at hkContinue
+            have : var ≠ kbreak' := by
+                intro hh
+                rw [hh, VarMap.get_eq_some_iff_any] at hvarT
+                have := hkContinue.1
+                rw [← hh] at this
+                grind
+            simp [this]
+            simp [validContinutation] at hkContinue
+            grind
+        | none => simp only [validContinutationRef]
+    }) (by grind) (by grind) (by {
+        intro x hx
+        specialize hMut₃ x hx
+        obtain ⟨y, hy, Hy⟩ := hMut₃
+        use y
+        use (by grind)
+        intro y'
+        simp only [Array.toList_push, List.mem_append, Array.mem_toList_iff, List.mem_cons,
+          List.not_mem_nil, or_false, and_imp]
+        intro h1 h2
+        cases h1 with
+        | inl hl =>
+            exact Hy y' (by grind)
+        | inr hr =>
+            specialize Hy x (by grind)
+            have : x.2 = varT := by {
+                have : ∀ z ∈ mutVars.toList, z.1 = x.1 → z = x := by
+                    sorry
+                specialize this (var, varT) (by sorry)
+                grind
+            }
+            grind
+    }) rest (by grind)
+    simp only [toSSAExpr, hvarT, HT, bne_iff_ne, ne_eq, Option.pure_def, Option.bind_eq_bind,
+      Option.bind_none, Option.bind_some, ite_not, ↓reduceIte, Option.get_bind, Option.get_some,
+      SSAExpr.inferType, this]
 | .break => by
     intro hp
     match kbreak with
     | some kbreak' =>
         simp [toSSAExpr, Option.isSome_iff_exists] at hp
-        have : (mkMutTuple mutVars).fst.inferType vars = (mkMutTuple mutVars).snd := sorry
-        simp [toSSAExpr]
+        have : (mkMutTuple mutVars).fst.inferType vars = (mkMutTuple mutVars).snd := SSAExpr.inferType_mkMutTuple _ _ hMut₂ hMut₃
+        simp only [toSSAExpr, Option.bind_eq_bind, Option.bind_some]
         grind [toSSAExpr, validContinutationRef, validContinutation, toSSAExpr, SSAExpr.welltyped_app_iff, SSAExpr.inferType, Option.isSome_iff_exists]
     | none =>
         simp [toSSAExpr] at hp
@@ -533,9 +608,8 @@ theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kco
     intro hp
     match kcontinue with
     | some kcontinue' =>
-        simp [toSSAExpr, Option.isSome_iff_exists] at hp
-        have : (mkMutTuple mutVars).fst.inferType vars = (mkMutTuple mutVars).snd := sorry
-        simp [toSSAExpr]
+        have : (mkMutTuple mutVars).fst.inferType vars = (mkMutTuple mutVars).snd := SSAExpr.inferType_mkMutTuple _ _ hMut₂ hMut₃
+        simp only [toSSAExpr, Option.bind_eq_bind, Option.bind_some]
         grind [toSSAExpr, validContinutationRef, validContinutation, toSSAExpr, SSAExpr.welltyped_app_iff, SSAExpr.inferType, Option.isSome_iff_exists]
     | none =>
         simp [toSSAExpr] at hp
@@ -544,14 +618,20 @@ theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kco
     grind [toSSAExpr, Option.isSome_iff_exists, Option.bind_eq_some_iff]
 | .ifthenelse c t e rest => by
     intro hp
-    simp [toSSAExpr, Option.isSome_iff_exists, Option.bind_eq_some_iff] at hp
-    obtain ⟨_, restExpr, hRestExpr, cType, hcType, hcType', tExpr, htExpr, tExprType, htExprType, eExpr, heExpr, eExprType, heExprType, heq, _⟩ := hp
+    simp only [toSSAExpr, Array.append_eq_append, bne_iff_ne, ne_eq, Option.bind_eq_bind,
+      Option.bind_none, Option.pure_def, Option.bind_some, ite_not, Option.isSome_iff_exists,
+      Option.bind_eq_some_iff, Option.ite_none_right_eq_some, Option.some.injEq, ↓existsAndEq,
+      true_and, and_true, exists_and_left, exists_and_right] at hp
+    obtain ⟨⟨restExpr, hRestExpr⟩, hctype, tExpr, htExpr, tExprType, htExprType, eExpr, heExpr, heType⟩ := hp
     let restMutVars : Array Name := rest.collectMutVars
     let nS : Name := freshName (Array.append (mutVars.map (·.1)) restMutVars) `s
-    have crux := toSSAExpr_wellTyped (vars.push (nS, (mkMutTuple mutVars).2)) mutVars kbreak kcontinue sorry sorry sorry sorry sorry rest (by simp [hRestExpr, nS, restMutVars])
+    have crux := toSSAExpr_wellTyped (vars.push (nS, (mkMutTuple mutVars).2)) mutVars kbreak kcontinue sorry sorry sorry sorry sorry rest (by {
+        simp [restMutVars, nS]
+        grind
+    })
     simp [nS, restMutVars, hRestExpr, Option.isSome_iff_exists] at crux
     obtain ⟨restExprType, hRestExprType⟩ := crux
-    simp [toSSAExpr, SSAExpr.inferType, hcType, hcType', hRestExpr, htExpr, htExprType, heExpr, heExprType]
+    simp [toSSAExpr, SSAExpr.inferType, hctype, hRestExpr, htExpr, htExprType, heExpr, heType]
     have : (SSAExpr.inferType
               (Array.push vars
                 (freshName (Array.map (fun x => x.fst) mutVars ++ rest.collectMutVars) `s, (mkMutTuple mutVars).snd))
@@ -565,8 +645,8 @@ theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kco
                   c) = SSAExpr.inferType vars c := by
         apply SSAExpr.inferType_eq_of_hygenic
         sorry
-        simp [hcType]
-    simp [this, hcType, SSAConst.inferType, hcType']
+        simp [hctype]
+    simp [this, hctype, SSAConst.inferType]
     have : (SSAExpr.inferType
               (Array.push vars
                 (freshName (Array.map (fun x => x.fst) mutVars) `kcontinue, (mkMutTuple mutVars).snd.fun restExprType))
@@ -576,7 +656,7 @@ theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kco
           (Array.push vars
             (freshName (Array.map (fun x => x.fst) mutVars) `kcontinue, (mkMutTuple mutVars).snd.fun restExprType))
           eExpr) = SSAExpr.inferType vars eExpr := sorry
-    simp [this, heExprType, heq]
+    simp [this, heType]
 | _ => sorry
 
 #check SSADo
