@@ -40,6 +40,7 @@ inductive SSAExpr where
 | lam (varName : Name) (varType : SSAType) (body : SSAExpr) : SSAExpr
 deriving Inhabited
 
+
 def VarMap := Array (Name × SSAType)
 
 def Fin.last' {n : Nat} [NeZero n] : Fin n :=
@@ -79,9 +80,30 @@ Fin.last' - Fin.cast (size_reverse) res) (as.reverse.findFinIdx? p)
 def VarMap.get (map : VarMap) (key : Name) : Option SSAType :=
     map.findLast? (·.1 = key) |>.map (·.2)
 
+#check Array.find?_eq_some_iff_getElem
+
+theorem VarMap.get_eq_some_imp_any (vars : VarMap) (key : Name) (a : SSAType) : vars.get key = some a → vars.any (·.1 = key) := by
+    simp [VarMap.get, Array.findLast?, Array.find?_eq_some_iff_getElem]
+    grind
+
+theorem VarMap.get_isSome_iff_any (vars : VarMap) (key : Name) : (vars.get key).isSome ↔ vars.any (·.1 = key) := sorry
+
+theorem VarMap.get_mem (vars : VarMap) (name : Name) (type : SSAType) : (name, type) ∈ cast (β := Array (Name × SSAType)) rfl vars → ∃ a, vars.get name = some a := by
+    simp only [cast_eq]
+    intro h
+    have := VarMap.get_isSome_iff_any
+    simp only [Option.isSome_iff_exists] at this
+    simp only [this, Array.any_eq_true, decide_eq_true_eq]
+    simp only [Array.mem_iff_getElem] at h
+    grind
+
+
+theorem VarMap.mem_get (vars: VarMap) (name : Name) (type : SSAType) : vars.get name = some type → (name, type) ∈ cast (β := Array (Name × SSAType)) rfl vars := sorry
+
 theorem VarMap.get_push (vars : VarMap) (last : Name × SSAType) (key : Name) : (cast (β := VarMap) rfl (vars.push last)).get key = if last.1 = key then some last.2 else vars.get key := sorry
 
-theorem VarMap.get_eq_some_iff_any (vars : VarMap) (key : Name) (a : SSAType) : vars.get key = some a ↔ vars.any (·.1 = key) := sorry
+
+theorem VarMap.get_eq_none_iff_not_any (vars : VarMap) (key : Name) : vars.get key = none ↔ ¬ vars.any (·.1 = key) := sorry
 
 def SSAConst.inferType : SSAConst → SSAType
 | ofFloat _ => .ofBase .float
@@ -226,7 +248,6 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
                 simp only [Array.findLast?, Array.findLastFinIdx?]
                 simp [Array.find?_eq_getElem_findFinIdx?]
                 congr
-                push_cast
                 rw [Fin.sub_val_of_le]
                 simp [Fin.val_last'_eq]
                 grind
@@ -304,21 +325,48 @@ def mkMutTuple : VarMap → SSAExpr × SSAType
     (.app (.app (.const (.prod type rightType)) (.var name)) rightExpr, .prod type rightType)
 termination_by as => as.size
 
-#check getElem
-#check Array.findFinIdx?_eq_some_iff
--- #check Fin.find_eq_some_iff
 theorem SSAExpr.inferType_mkMutTuple (vars : VarMap) : (mutVars : VarMap) → (h : mutVars.toList ⊆ vars.toList) → (h' : ∀ x ∈ mutVars.toList, ∃! y ∈ vars.toList, x.1 = y.1) → (mkMutTuple mutVars).fst.inferType vars = (mkMutTuple mutVars).snd
 | ⟨[]⟩ => by simp [inferType, mkMutTuple, SSAConst.inferType]
 | ⟨[(name, type)]⟩ => by
-    simp [inferType, mkMutTuple, VarMap.get]
-    intro h ⟨i, hi, H⟩
-    obtain ⟨hi, hhi⟩ := hi
-    sorry
+    simp only [List.cons_subset, Array.mem_toList_iff, List.nil_subset, and_true, List.mem_cons,
+      List.not_mem_nil, or_false, forall_eq, mkMutTuple, inferType]
+    intro h1 ⟨y, hy, Hy⟩
+    have : (vars.get name).isSome := by
+        rw [VarMap.get_isSome_iff_any]
+        grind only [Array.mem_iff_getElem, = Array.any_eq]
+    simp [Option.isSome_iff_exists] at this
+    obtain ⟨type', htype'⟩ := this
+    rw [htype']
+    congr
+    have := Hy (name, type) (by grind)
+    have := Hy (name, type') (by {
+        have := VarMap.mem_get vars name type' htype'
+        grind
+    })
+    grind only
 | ⟨(name, type)::b::l⟩ => by
-    intro h h'
-    simp at h'
-    simp [mkMutTuple]
-    sorry
+    simp only [List.cons_subset, Array.mem_toList_iff, List.mem_cons, forall_eq_or_imp, Prod.forall,
+      and_imp]
+    intro h1 hb hl ⟨y1, hy1, Hy1⟩ ⟨y2, hy2, Hy2⟩ H
+    have := inferType_mkMutTuple vars { toList := b :: l} (by grind) (by {
+        simp only [List.mem_cons, Array.mem_toList_iff, forall_eq_or_imp, Prod.forall]
+        apply And.intro
+        use y2
+        grind only
+    })
+    simp [mkMutTuple, inferType, SSAConst.inferType, this]
+    obtain ⟨type', htype'⟩ := VarMap.get_mem _ _ _ h1
+    have : type = type' := by
+        have old := htype'
+        -- simp only [VarMap.get_eq_some_iff_any, Array.any_eq_true, decide_eq_true_eq] at htype'
+        -- obtain ⟨i, hi, Hi⟩ := htype'
+        have := Hy1 (name, type') (by {
+            have := VarMap.mem_get vars name type' (by grind)
+            grind
+        })
+        have := Hy1 (name, type)
+        grind only
+    simp only [htype', this, Option.bind_some, ↓reduceIte]
 termination_by as => as.size
 
 def destructMutTuple (tupleName : Name) : VarMap → SSAExpr → SSAExpr
@@ -469,7 +517,10 @@ def SSAType.funCodom? : SSAType → Option SSAType
 | .fun _ β => β
 | _ => none
 
-theorem SSAExpr.welltyped_app_iff (vars : VarMap) (f x : SSAExpr) : ((f.app x).inferType vars).isSome ↔ (do pure ((← f.inferType vars).funDom? = (← x.inferType vars))) = some True := sorry
+theorem SSAExpr.welltyped_app_iff (vars : VarMap) (f x : SSAExpr) : ((f.app x).inferType vars).isSome ↔ (do pure ((← f.inferType vars).funDom? = (← x.inferType vars))) = some True := by
+    simp only [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff, SSAType.funDom?,
+      Option.pure_def, Option.bind_eq_bind, Option.some.injEq, eq_iff_iff, iff_true]
+    grind only
 
 #check Option.getD
 
@@ -486,7 +537,140 @@ def SSADo.validContinutationRef (vars : VarMap) (mutVars : VarMap) (k : Option N
     | some k' => validContinutation vars mutVars k'
     | none => True
 
-theorem SSAExpr.inferType_eq_of_hygenic (vars : VarMap) (newvar : Name) (newVarType : SSAType) (hHygenic : ¬ vars.any (·.1 = newvar)) (expr : SSAExpr) : (expr.inferType vars).isSome → expr.inferType (vars.push (newvar, newVarType)) = expr.inferType vars := sorry
+/- two VarMaps are equivalent if the non shadowed variables agree on types at all names, and the set of unshadowed names is the same -/
+def VarMap.equiv (vars₁ vars₂ : VarMap) : Prop :=
+    {name | vars₁.any (·.1 = name)} = {name | vars₂.any (·.1 = name)} ∧ ∀ name, vars₁.any (·.1 = name) → vars₁.get name = vars₂.get name
+
+def VarMap.equiv_push (vars₁ vars₂ : VarMap) (hvars : vars₁.equiv vars₂) (varname : Name) (vartype : SSAType) : (cast (β := VarMap) rfl (vars₁.push (varname, vartype))).equiv (vars₂.push (varname, vartype)) := by
+    simp only [cast_eq]
+    simp only [equiv, Array.any_eq_true, decide_eq_true_eq, forall_exists_index, Array.size_push, Array.any_push', Bool.or_eq_true] at ⊢ hvars
+    apply And.intro
+    · ext name
+      rw [Set.ext_iff] at hvars
+      grind only [usr Set.mem_setOf_eq]
+    · intro name H
+      have := VarMap.get_push
+      simp only [cast_eq, Prod.forall] at this
+      rw [this]
+      cases em (varname = name) with
+      | inl hl =>
+        simp only [hl, ↓reduceIte]
+        cases H with
+        | inl hll => grind
+        | inr hlr =>
+            grind only
+      | inr hr =>
+        simp [hr]
+        grind only
+
+theorem SSAExpr.inferType_eq_of_vars_equiv (vars₁ vars₂ : VarMap) (hvars : vars₁.equiv vars₂) : (expr : SSAExpr) → expr.inferType vars₁ = expr.inferType vars₂
+| const c => by simp only [inferType]
+| letE varname val body => by
+    simp only [inferType]
+    rw [inferType_eq_of_vars_equiv vars₁ vars₂ hvars val]
+    congr
+    ext valType a
+    have := inferType_eq_of_vars_equiv (vars₁.push (varname, valType)) (vars₂.push (varname, valType)) (VarMap.equiv_push vars₁ vars₂ hvars varname valType) body
+    grind only
+| lam varname type body => by
+    simp only [inferType]
+    have := inferType_eq_of_vars_equiv (vars₁.push (varname, type)) (vars₂.push (varname, type)) (VarMap.equiv_push vars₁ vars₂ hvars varname type) body
+    grind only
+| app f x => by
+    simp only [inferType]
+    rw [inferType_eq_of_vars_equiv vars₁ vars₂ hvars f, inferType_eq_of_vars_equiv vars₁ vars₂ hvars x]
+| var name => by
+    simp only [inferType]
+    simp only [VarMap.equiv] at hvars
+    match h : vars₁.get name with
+    | some type =>
+        have h' := h
+        apply VarMap.get_eq_some_imp_any at h
+        have := hvars.2 name (by grind)
+        grind
+    | none =>
+        have h' := h
+        rw [VarMap.get_eq_none_iff_not_any] at h
+        have := hvars.1
+        rw [Set.ext_iff] at this
+        specialize this name
+        simp only [Array.any_eq_true, decide_eq_true_eq, Set.mem_setOf_eq] at this
+        grind only [Array.any_eq_true, VarMap.get_eq_none_iff_not_any]
+
+def VarMap.submap (vars₁ vars₂ : VarMap) : Prop :=
+    {name | vars₁.any (·.1 = name)} ⊆ {name | vars₂.any (·.1 = name)} ∧ ∀ name, vars₁.any (·.1 = name) → vars₁.get name = vars₂.get name
+
+theorem SSAExpr.inferType_eq_of_vars_submap (vars₁ vars₂ : VarMap) (hvars : vars₁.submap vars₂) : (expr : SSAExpr) → (expr.inferType vars₁).isSome → expr.inferType vars₁ = expr.inferType vars₂ := sorry
+
+theorem SSAExpr.inferType_push_eq_of_hygenic (vars : VarMap) (newvar : Name) (newVarType : SSAType) (hHygenic : ¬ vars.any (·.1 = newvar)) : (expr : SSAExpr) → (expr.inferType vars).isSome → expr.inferType (vars.push (newvar, newVarType)) = expr.inferType vars
+| const c => by simp [inferType]
+| letE varName val body => by
+    intro H
+    simp only [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff] at H
+    obtain ⟨bodyT, valT, hvalT, hbodyT⟩ := H
+    have crux1 := inferType_push_eq_of_hygenic vars newvar newVarType hHygenic val (Option.isSome_of_mem hvalT)
+    simp [inferType, hvalT, crux1]
+    symm
+    apply SSAExpr.inferType_eq_of_vars_submap
+    simp [VarMap.submap]
+    apply And.intro
+    grind
+    intro name hName
+    have := VarMap.get_push
+    simp at this
+    simp [this]
+    cases em (varName = name) with
+    | inl hl =>
+        simp [hl]
+    | inr hr =>
+        simp [hr]
+        simp [VarMap.get, Array.findLast?, Array.find?_eq_some_iff_getElem]
+        grind
+    grind
+| lam varname type body => by
+    intro H
+    simp only [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff, Option.some.injEq,
+      ↓existsAndEq, and_true] at H
+    obtain ⟨bodyT, hbodyT⟩ := H
+    simp only [inferType, hbodyT, Option.bind_some, Option.bind_eq_some_iff, Option.some.injEq,
+      SSAType.fun.injEq, true_and, exists_eq_right]
+    symm
+    rw [← hbodyT]
+    apply SSAExpr.inferType_eq_of_vars_submap
+    simp [VarMap.submap]
+    apply And.intro
+    grind
+    intro name hName
+    have := VarMap.get_push
+    simp at this
+    simp [this]
+    cases em (varname = name) with
+    | inl hl =>
+        simp [hl]
+    | inr hr =>
+        simp [hr]
+        simp [VarMap.get, Array.findLast?, Array.find?_eq_some_iff_getElem]
+        grind
+    grind
+| app f x => by
+    intro H
+    simp only [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff] at H
+    obtain ⟨finaltype, ftype, hftype, xtype, hxtype, Hfinal⟩ := H
+    simp only [inferType, hftype, hxtype, Option.bind_some]
+    have cruxf := inferType_push_eq_of_hygenic vars newvar newVarType hHygenic f (Option.isSome_of_mem hftype)
+    have cruxx := inferType_push_eq_of_hygenic vars newvar newVarType hHygenic x (Option.isSome_of_mem hxtype)
+    simp only [cruxf, hftype, cruxx, hxtype, Option.bind_some]
+| var name => by
+    intro H
+    simp only [inferType, Option.isSome_iff_exists] at H
+    have := VarMap.get_push
+    simp at this
+    simp [inferType, this]
+    obtain ⟨t, ht⟩ := H
+    have := VarMap.get_eq_some_imp_any _ _ _ ht
+    simp only [Array.any_eq_true, decide_eq_true_eq] at this
+    simp at hHygenic
+    grind
 
 theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (kbreak kcontinue : Option Name) (hkBreak : validContinutationRef vars mutVars kbreak) (hkContinue : validContinutationRef vars mutVars kcontinue) (hMut₁ : (mutVars.toList.map (·.1)).Nodup) (hMut₂ : mutVars.toList ⊆ vars.toList) (hMut₃ : ∀ x ∈ mutVars.toList, ∃! y ∈ vars.toList, x.1 = y.1) : (prog : SSADo) → (hp : (prog.toSSAExpr vars mutVars kbreak kcontinue).isSome) → (((prog.toSSAExpr vars mutVars kbreak kcontinue).get hp).inferType vars).isSome
 | .expr e => by
