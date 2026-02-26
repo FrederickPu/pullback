@@ -343,6 +343,8 @@ def destructMutTuple (tupleName : Name) : VarMap → SSAExpr → SSAExpr
     .letE name (.app (.const (.prod₁ type rightTupleType)) (.var tupleName)) (.letE tupleName (.app (.const (.prod₂ type rightTupleType)) (.var tupleName)) (destructMutTuple tupleName ⟨b::l⟩ body))
 termination_by as _ => as.size
 
+theorem SSAExpr.inferType_destructMutTuple (vars : VarMap) (name : Name): (mutVars : VarMap) → (h' : ∀ x ∈ mutVars, vars.get x.1 = x.2) → (body : SSAExpr) → (destructMutTuple name mutVars body).inferType vars = body.inferType (vars ++ mutVars):= sorry
+
 #check Lean.LocalContext
 #check Lean.LocalContext.getUnusedName
 #check Lean.LocalContext.getUnusedName
@@ -476,19 +478,21 @@ def SSADo.toSSAExpr (vars : VarMap) (mutVars : VarMap) (kMutVars : VarMap) (kbre
 | ifthenelse cond t e rest => do
     let (_, mutTupleType) := (mkMutTuple mutVars)
     let nKContinue : Name := freshName ((vars.map (·.1) ++ t.vars ++ e.vars)) `kcontinue
+    let nKBreak : Name := freshName ((vars.map (·.1) ++ t.vars ++ e.vars)) `kbreak
     let restMutVars : Array Name := rest.mutVars
     let nS : Name := freshName (Array.append (mutVars.map (·.1)) restMutVars) `s
     -- todo :: pass expanded mutvars into toSSAExpr
-    let continue' ← (SSAExpr.lam nS mutTupleType <| destructMutTuple nS mutVars (← rest.toSSAExpr (vars.push (nS, mutTupleType)) mutVars kMutVars kbreak kcontinue))
+    let continue' := (SSAExpr.lam nS mutTupleType <| destructMutTuple nS mutVars (← rest.toSSAExpr (vars.push (nS, mutTupleType)) mutVars kMutVars kbreak kcontinue))
+    let kbreak' := (SSAExpr.lam nS mutTupleType <| destructMutTuple nS mutVars (← rest.toSSAExpr (vars.push (nS, mutTupleType)) mutVars kMutVars kbreak kcontinue))
     if (← cond.inferType vars) != SSAType.ofBase .int then
         none
-    let texpr ← t.toSSAExpr vars mutVars mutVars kbreak nKContinue
+    let texpr ← t.toSSAExpr vars mutVars mutVars nKBreak nKContinue
     let tExprType ← texpr.inferType vars
-    let eExpr ← e.toSSAExpr vars mutVars mutVars kbreak nKContinue
+    let eExpr ← e.toSSAExpr vars mutVars mutVars nKBreak nKContinue
     let eExprType ← eExpr.inferType vars
     if tExprType != eExprType then
         none
-    SSAExpr.letE nKContinue continue' <|
+    SSAExpr.letE nKBreak kbreak' <| SSAExpr.letE nKContinue continue' <|
     SSAExpr.app (SSAExpr.app (SSAExpr.app (.const (.ifthenelse tExprType)) cond) texpr) (eExpr)
 
 #check List.Nodup
@@ -574,6 +578,8 @@ theorem SSAExpr.inferType_eq_of_vars_equiv (vars₁ vars₂ : VarMap) (hvars : v
         simp only [Array.any_eq_true, decide_eq_true_eq, Set.mem_setOf_eq] at this
         grind only [Array.any_eq_true, VarMap.get_eq_none_iff_not_any]
 
+theorem SSADo.toSSAExpr_eq_of_vars_equiv (vars₁ vars₂ : VarMap) (mutVars contMutVars : VarMap) (kbreak kcontinue : Option Name) (hvars : vars₁.equiv vars₂) : (s : SSADo) → s.toSSAExpr vars₁ mutVars contMutVars kbreak kcontinue = s.toSSAExpr vars₂ mutVars contMutVars kbreak kcontinue := sorry
+
 def VarMap.submap (vars₁ vars₂ : VarMap) : Prop :=
     {name | vars₁.any (·.1 = name)} ⊆ {name | vars₂.any (·.1 = name)} ∧ ∀ name, vars₁.any (·.1 = name) → vars₁.get name = vars₂.get name
 
@@ -641,6 +647,8 @@ theorem SSAExpr.inferType_eq_of_vars_submap (vars₁ vars₂ : VarMap) (hvars : 
     simp only [Array.any_eq_true, decide_eq_true_eq] at this
     obtain ⟨i, hi, Hi⟩ := this
     grind only
+
+theorem SSADo.toSSAExpr_eq_of_vars_submap (vars₁ vars₂ : VarMap) (mutVars contMutVars : VarMap) (kbreak kcontinue : Option Name) (hvars : vars₁.submap vars₂) : (s : SSADo) →  (s.toSSAExpr vars₁ mutVars contMutVars kbreak kcontinue).isSome →  s.toSSAExpr vars₁ mutVars contMutVars kbreak kcontinue = s.toSSAExpr vars₂ mutVars contMutVars kbreak kcontinue := sorry
 
 theorem SSAExpr.inferType_push_eq_of_hygenic (vars : VarMap) (newvar : Name) (newVarType : SSAType) (hHygenic : ¬ vars.any (·.1 = newvar)) : (expr : SSAExpr) → (expr.inferType vars).isSome → expr.inferType (vars.push (newvar, newVarType)) = expr.inferType vars
 | const c => by simp [inferType]
@@ -931,10 +939,54 @@ theorem SSADo.toSSAExpr_wellTyped (vars : VarMap) (mutVars : VarMap) (continueMu
     intro hp
     grind [toSSAExpr, Option.isSome_iff_exists, Option.bind_eq_some_iff]
 | .ifthenelse c t e rest, hkBreak, hkContinue => by
+    unfold toSSAExpr
+    extract_lets nKContinue nKBreak restMutVars nS
     intro hp
-    simp [toSSAExpr, Option.isSome_iff_exists, Option.bind_eq_some_iff] at hp
+    simp [Option.isSome_iff_exists, Option.bind_eq_some_iff] at hp
+    obtain ⟨⟨restExpr, hRestExpr⟩, hctype, tExpr, htExpr, type, htype₁, eExpr, heExpr, htype₂⟩ := hp
+    have := toSSAExpr_wellTyped vars mutVars mutVars sorry nKBreak nKContinue hMut₁ hMut₂ t sorry sorry (by simp [htExpr])
+    rw [Option.isSome_iff_exists] at this
+    obtain ⟨tType, htType⟩ := this
+    have := toSSAExpr_wellTyped vars mutVars mutVars sorry nKBreak nKContinue hMut₁ hMut₂ e sorry sorry (by simp [heExpr])
+    rw [Option.isSome_iff_exists] at this
+    obtain ⟨eType, heType⟩ := this
+    have := toSSAExpr_wellTyped (Array.push vars (nS, (mkMutTuple mutVars).2))  mutVars continueMutVars sorry kbreak kcontinue hMut₁ sorry rest sorry sorry sorry
+    rw [Option.isSome_iff_exists] at this
+    obtain ⟨restType, hRestType⟩ := this
+    simp [hRestExpr] at hRestType
+    -- want lemma about `inferType (destructMutTuple) = .fun _ inferType`
+    simp [SSAExpr.inferType, hctype]
+    rw [SSAExpr.inferType_destructMutTuple]
+    have : (SSAExpr.inferType (Array.push vars (nS, (mkMutTuple mutVars).2) ++ mutVars) restExpr) = (SSAExpr.inferType (Array.push vars (nS, (mkMutTuple mutVars).2)) restExpr) := sorry
+    simp [hRestExpr, this, hRestType]
+    rw [SSAExpr.inferType_destructMutTuple]
+    have : (SSAExpr.inferType
+              ((Array.push vars (nKBreak, (mkMutTuple mutVars).2.fun restType)).push (nS, (mkMutTuple mutVars).2) ++
+                mutVars)
+              restExpr) = (SSAExpr.inferType (Array.push vars (nS, (mkMutTuple mutVars).2)) restExpr) := sorry
+    simp [this, hRestType, SSAConst.inferType]
+    have : (SSAExpr.inferType
+                  ((Array.push vars (nKBreak, (mkMutTuple mutVars).2.fun restType)).push
+                    (nKContinue, (mkMutTuple mutVars).2.fun restType))
+                  c) = SSAType.ofBase .int := sorry
+    simp [this, htExpr]
+    have : (SSAExpr.inferType
+              ((Array.push vars (nKBreak, (mkMutTuple mutVars).2.fun restType)).push
+                (nKContinue, (mkMutTuple mutVars).2.fun restType))
+              tExpr) = tType := sorry
+    simp [this]
+    have : (SSAExpr.inferType vars tExpr) = tType := sorry
+    simp [this, heExpr]
+    have : (SSAExpr.inferType
+          ((Array.push vars (nKBreak, (mkMutTuple mutVars).2.fun restType)).push
+            (nKContinue, (mkMutTuple mutVars).2.fun restType))
+          eExpr) = eType := sorry
+    simp [this]
+    grind
     sorry
-| _, hkBreak, hkContinue => sorry
+    sorry
+| .loop body rest, hkBreak, hkContinue => sorry
+| .seq s₁ s₂, hkBreak, hkContinue => sorry
 
 #check SSADo
 
