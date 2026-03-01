@@ -243,7 +243,7 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
                 simp only [Array.findLast?, Array.findLastFinIdx?]
                 simp [Array.find?_eq_getElem_findFinIdx?]
                 congr
-                rw [Fin.sub_val_of_le]
+                rw [Fin.val_cast, Fin.sub_val_of_le]
                 simp [Fin.val_last'_eq]
                 grind
                 have : NeZero (Array.size vars) := ⟨by {
