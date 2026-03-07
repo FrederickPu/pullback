@@ -1,2 +1,2 @@
 # pullback
-Formally verified code to code translation using LLMs and Lean4
+Framework for verified shallow embeddings and specification of proggramming language in Lean4
