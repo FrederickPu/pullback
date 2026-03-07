@@ -25,7 +25,7 @@ def evalBindSomeElim : Tactic := fun _ =>
       let hyp  := mkIdent decl.userName
       let wit  := mkIdent binderName
       let hWit := mkIdent (Name.mkSimple s!"h{binderName}")
-      evalTactic (← `(tactic| rw [Option.bind_eq_some_iff] at $hyp:ident))
+      evalTactic (← `(tactic| apply Option.bind_eq_some_iff.mp at $hyp:ident))
       evalTactic (← `(tactic| obtain ⟨$wit, $hWit, $hyp⟩ := $hyp:ident))
       return
     throwTacticEx `bind_some_elim (← getMainGoal)
@@ -51,7 +51,7 @@ def evalIsSomeElim : Tactic := fun _ =>
         | _ => `a
       let hyp  := mkIdent decl.userName
       let wit  := mkIdent (Name.mkSimple s!"{witName}'")
-      evalTactic (← `(tactic| rw [Option.isSome_iff_exists] at $hyp:ident))
+      evalTactic (← `(tactic| apply Option.isSome_iff_exists.mp at $hyp:ident))
       evalTactic (← `(tactic| obtain ⟨$wit, $hyp⟩ := $hyp:ident))
       return
     throwTacticEx `is_some_elim (← getMainGoal)
@@ -62,7 +62,7 @@ theorem womp (a c : Option Nat) (b : Nat → Option Nat) (p : Nat → Prop) :
     c.isSome →
     (do let x ← a; let y ← c; some <| p (← b x)) = some True := by
   intro h h1
-  rw [Option.bind_eq_bind] at *
+  rewrite [Option.bind_eq_bind] at *
   is_some_elim
   bind_some_elim
   bind_some_elim
