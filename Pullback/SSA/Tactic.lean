@@ -32,7 +32,7 @@ def matchBindSome (goal : MVarId) (fvarId : FVarId) : MetaM (Option Name) :=
       | _ => `val
     let binderName :=
       let s := rawName.toString
-      if s.startsWith "__" || s.startsWith "_@" then `dolift else rawName
+      if rawName.isInternal || rawName.hasMacroScopes then `dolift else rawName
     return some binderName
 
 def applyBindSomeIff (goal : MVarId) (hypId : FVarId) : MetaM (MVarId × FVarId) :=
