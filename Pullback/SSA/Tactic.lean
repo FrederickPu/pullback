@@ -18,7 +18,7 @@ def applyToAllHyps (goal : MVarId) (f : MVarId → FVarId → MetaM (MVarId × B
 
 syntax (name := bindSomeElim) "bind_some_elim" : tactic
 
-def matchBindSome (goal : MVarId) (fvarId : FVarId) : MetaM (Option Name) := do
+def matchBindSome (goal : MVarId) (fvarId : FVarId) : MetaM (Option Name) :=
   goal.withContext do
     let decl ← fvarId.getDecl
     let ty ← inferType decl.toExpr
@@ -35,7 +35,7 @@ def matchBindSome (goal : MVarId) (fvarId : FVarId) : MetaM (Option Name) := do
       if s.startsWith "__" || s.startsWith "_@" then `dolift else rawName
     return some binderName
 
-def applyBindSomeIff (goal : MVarId) (hypId : FVarId) : MetaM (MVarId × FVarId) := do
+def applyBindSomeIff (goal : MVarId) (hypId : FVarId) : MetaM (MVarId × FVarId) :=
   goal.withContext do
     let hypExpr := .fvar hypId
     let hypTy   ← inferType hypExpr
@@ -56,7 +56,7 @@ def applyBindSomeIff (goal : MVarId) (hypId : FVarId) : MetaM (MVarId × FVarId)
     let newGoal ← newGoal.clear hypId
     return (newGoal, newHypId)
 
-def destructBindSome (goal : MVarId) (hypId : FVarId) (witName : Name) (hWitName : Name) (hypName : Name) : MetaM MVarId := do
+def destructBindSome (goal : MVarId) (hypId : FVarId) (witName : Name) (hWitName : Name) (hypName : Name) : MetaM MVarId :=
   goal.withContext do
     let hypExpr := .fvar hypId
     let wit     ← mkAppM ``Exists.choose #[hypExpr]
@@ -107,7 +107,7 @@ def evalBindSomeElim : Tactic := fun _ => do
 
 syntax (name := isSomeElim) "is_some_elim" : tactic
 
-def matchIsSome (goal : MVarId) (fvarId : FVarId) : MetaM (Option Name) := do
+def matchIsSome (goal : MVarId) (fvarId : FVarId) : MetaM (Option Name) :=
   goal.withContext do
     let decl ← fvarId.getDecl
     let ty ← inferType decl.toExpr
@@ -136,7 +136,7 @@ def applyIsSomeIff (goal : MVarId) (hypId : FVarId) : MetaM (MVarId × FVarId) :
     let newGoal ← newGoal.clear hypId
     return (newGoal, newHypId)
 
-def destructIsSome (goal : MVarId) (hypId : FVarId) (witName : Name) (hypName : Name) : MetaM MVarId := do
+def destructIsSome (goal : MVarId) (hypId : FVarId) (witName : Name) (hypName : Name) : MetaM MVarId :=
   goal.withContext do
     let hypExpr := .fvar hypId
     let wit     ← mkAppM ``Exists.choose #[hypExpr]
