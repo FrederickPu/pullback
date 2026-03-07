@@ -70,21 +70,32 @@ def destructBindSome (goal : MVarId) (hypId : FVarId) (witName : Name) (hWitName
     let g ← g.tryClear hypId
     return g
 
-@[tactic bindSomeElim]
-def evalBindSomeElim : Tactic := fun _ =>
-  withMainContext do
+/-- Process all hypotheses in the goal, peeling one bind layer each. Returns (newGoal, progress) -/
+def bindSomeElimStep (goal : MVarId) : MetaM (MVarId × Bool) := do
+  goal.withContext do
     let lctx ← getLCtx
+    let mut goal := goal
+    let mut progress := false
     for decl in lctx do
       if decl.isImplementationDetail then continue
-      let some binderName ← matchBindSome decl | continue
-      let goal ← getMainGoal
-      let (newGoal, newHypId) ← applyBindSomeIff goal decl.fvarId
-      let hWitName := Name.mkSimple s!"h{binderName}"
-      let finalGoal ← destructBindSome newGoal newHypId binderName hWitName decl.userName
-      replaceMainGoal [finalGoal]
-      return
-    throwTacticEx `bind_some_elim (← getMainGoal)
-      "no hypothesis of the form `f >>= g = some _` found"
+      let mut hypName := decl.userName
+      while true do
+        let lctx ← goal.withContext getLCtx
+        let some decl := lctx.findFromUserName? hypName | break
+        let some binderName ← goal.withContext (matchBindSome decl) | break
+        let (newGoal, newHypId) ← applyBindSomeIff goal decl.fvarId
+        let hWitName := Name.mkSimple s!"h{binderName}"
+        goal ← destructBindSome newGoal newHypId binderName hWitName hypName
+        progress := true
+    return (goal, progress)
+
+@[tactic bindSomeElim]
+def evalBindSomeElim : Tactic := fun _ => do
+  let goal ← getMainGoal
+  let (newGoal, progress) ← bindSomeElimStep goal
+  replaceMainGoal [newGoal]
+  unless progress do
+    logWarning "bind_some_elim: no hypothesis of the form `f >>= g = some _` found"
 
 
 syntax (name := isSomeElim) "is_some_elim" : tactic
