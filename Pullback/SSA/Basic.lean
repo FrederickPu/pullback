@@ -1,6 +1,7 @@
 import Lean
 import Mathlib.Logic.ExistsUnique
 import Mathlib.Data.Fin.Tuple.Basic
+import Pullback.SSA.Tactic
 
 open Lean
 
@@ -131,10 +132,61 @@ def SSAExpr.inferType (vars : VarMap) : SSAExpr → Option SSAType
     fun fType =>
     arg.inferType vars |>.bind
     fun argType =>
-        match fType, argType with
-        | SSAType.fun α β, x  => if α = x then β else none
-        | _, _ => none
+    fType.funDom? |>.bind
+    fun dom =>
+        if dom = argType then
+            fType.funCodom?
+        else
+            none
 | lam name varType body => body.inferType (vars.push (name, varType)) |>.bind (fun bodyType => SSAType.fun varType bodyType)
+
+def SSAExpr.inferType! (vars : VarMap) : SSAExpr → SSAType
+| const base => base.inferType
+| letE varname val body => body.inferType! (vars.push (varname, val.inferType! vars))
+| var name => (vars.get name).getD
+    (.ofBase .unit) -- dummy value this is failure case
+| app f _ => ((f.inferType! vars).funCodom?).getD
+    (.ofBase .unit) -- dummy value this is failure case
+| lam varName varType body => .fun varType (body.inferType! (vars.push (varName, varType)))
+
+theorem SSAExpr.inferType_eq_some_inferType!_of_isSome (vars : VarMap) : (expr : SSAExpr) →(expr.inferType vars).isSome → expr.inferType vars = expr.inferType! vars
+| const base => by simp only [inferType, Option.isSome_some, inferType!, imp_self]
+| letE name val body => by
+    intro h
+    simp only [inferType] at h
+    option_elim
+    simp [inferType, inferType!, hvalType, h]
+    have := inferType_eq_some_inferType!_of_isSome (Array.push vars (name, valType)) body (by simp [h])
+    have := inferType_eq_some_inferType!_of_isSome vars val (by grind)
+    grind
+| var name => by
+    intro h
+    simp only [inferType] at h
+    option_elim
+    simp [inferType, inferType!, h]
+| app f x => by
+    intro h
+    simp only [inferType] at h
+    option_elim
+    have := inferType_eq_some_inferType!_of_isSome vars f (by grind)
+    match hh : (f.inferType! vars).funDom? with
+    | some codom =>
+        grind [inferType, inferType!]
+    | none =>
+        grind
+| lam varName varType body => by
+    intro h
+    simp only [inferType] at h
+    option_elim
+    have := inferType_eq_some_inferType!_of_isSome (Array.push vars (varName, varType)) body (by grind)
+    grind [inferType, inferType!]
+
+
+example (vars : VarMap) (expr : SSAExpr) : (expr.inferType vars).isSome ↔ expr.inferType vars = expr.inferType! vars := by
+    apply Iff.intro
+    exact fun a => SSAExpr.inferType_eq_some_inferType!_of_isSome vars expr a
+    intro h
+    grind only [= Option.isSome_some]
 
 def SSABaseType.type : SSABaseType → Type
 | float => Rat
@@ -216,6 +268,15 @@ def SSAConst.interp : (e : SSAConst) → (e.inferType).type
 | or => fun x y => if x != (0: Int) || y != (0:Int) then (1:Int) else (0:Int)
 | and => fun x y => if x != (0 : Int) && y != (0 : Int) then (1 : Int) else (0 : Int)
 
+theorem SSAExpr.welltyped_app_iff (vars : VarMap) (f x : SSAExpr) : ((f.app x).inferType vars).isSome ↔ (do pure ((← f.inferType vars).funDom? = (← x.inferType vars))) = some True := by
+    simp only [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff, SSAType.funDom?,
+      Option.pure_def, Option.bind_eq_bind, Option.some.injEq, eq_iff_iff, iff_true]
+    sorry
+
+theorem SSAType.type_fun_eq_dom_codom (ftype : SSAType) (dom codom : SSAType) : ftype.funDom? = dom → ftype.funCodom? = codom → ftype = .fun dom codom := sorry
+
+theorem SSAType.dom_isSome_iff_codom_isSome (ftype : SSAType) : ftype.funDom?.isSome ↔ ftype.funCodom?.isSome := sorry
+
 def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>.isSome) → DVector (Array.toList (vars.map (·.2.type))) → (Option.get (e.inferType vars) he).type
 | .const base, he, _ => base.interp
 | .letE name val body, he, ctx =>
@@ -266,35 +327,43 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
           = Array.size_reverse]
     }
 | app f arg, he, ctx =>
-    match hf : f.inferType vars with
-    | some (.fun α β) =>
-        cast (by {
-            grind [inferType]
-        }) <|
-        (cast (β := α.type → β.type) (by {
-            simp [inferType, Option.isSome_bind, Option.any_eq_true_iff_get] at he
-            have : inferType vars f = some (.fun α β) := by grind
-            simp [this, SSAType.type]
-        }) <| f.interp vars (by grind [inferType]) ctx) (cast (β := α.type) (by {
-            simp [inferType, Option.isSome_bind, Option.any_eq_true_iff_get] at he
+    match hfType : f.inferType vars with
+    | some fType =>
+        match hdom : fType.funDom?, hcodom : fType.funCodom? with
+        | some dom, some codom =>
+            if hdom' : (fType.funDom? = some dom) then
+                cast (by {
+                    rw [welltyped_app_iff] at he
+                    option_elim
+                    expose_names
+                    simp only [inferType, hfType, hdolift, Option.bind_some, hdom]
+                    grind
+                }) <|
+                (cast (β := dom.type → codom.type) (by {
+                    simp [inferType, Option.isSome_bind, Option.any_eq_true_iff_get] at he
+                    have : inferType vars f = some (.fun dom codom) := by
+                        rw [hfType, SSAType.type_fun_eq_dom_codom fType dom codom hdom hcodom]
+                    simp [this, SSAType.type]
+                }) <| f.interp vars (by grind [inferType]) ctx) (cast (β := dom.type) (by {
+                    simp only [inferType] at he
+                    option_elim
+                    grind [SSAType.funCodom?, SSAType.funDom?]
+                }) <| arg.interp vars (by {
+                    simp only [inferType, Option.isSome_bind, Option.any_eq_true_iff_get] at he
+                    grind only
+                }) ctx)
+            else
+                (by grind)
+        | some dom, none => (by grind [SSAType.dom_isSome_iff_codom_isSome])
+        | none, some dom => (by grind [SSAType.dom_isSome_iff_codom_isSome])
+        | none, none => (by {
+            apply False.elim
+            simp only [inferType, hfType, Option.bind_some] at he
+            option_elim
+            simp only [Option.ite_none_right_eq_some] at he
             grind
-        }) <| arg.interp vars (by {
-            simp only [inferType, Option.isSome_bind, Option.any_eq_true_iff_get] at he
-            grind only
-        }) ctx)
-    | some (.prod α β) => by {
-        simp [inferType, Option.isSome_bind, Option.any_eq_true_iff_get] at he
-        apply False.elim
-        grind
-    }
-    | some (.ofBase bTy) => by {
-        simp [inferType, Option.isSome_bind, Option.any_eq_true_iff_get] at he
-        apply False.elim
-        grind
-    }
-    | none => by {
-        simp [inferType, hf] at he
-    }
+        })
+    | none => by simp [inferType, hfType] at he
 | lam name valType body, he, ctx => cast (by {
     simp [inferType, Option.isSome_bind] at he
     simp [inferType, SSAType.type]
@@ -329,7 +398,7 @@ theorem SSAExpr.inferType_mkMutTuple (vars : VarMap) : (mutVars : VarMap) → (h
     simp
     intro h1 h2 h3
     have := inferType_mkMutTuple vars ⟨b::l⟩ (by grind)
-    simp [inferType, mkMutTuple, this, h1, SSAConst.inferType]
+    simp [inferType, mkMutTuple, this, h1, SSAConst.inferType, SSAType.funDom?, SSAType.funCodom?]
 termination_by as => as.size
 
 def destructMutTuple (tupleName : Name) : VarMap → SSAExpr → SSAExpr
