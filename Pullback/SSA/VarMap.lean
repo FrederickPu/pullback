@@ -111,3 +111,12 @@ def VarMap.submap_push (vars₁ vars₂ : VarMap) (hvars : vars₁.submap vars�
       | inr hr =>
         simp only [hr, or_false, ↓reduceIte] at ⊢ hName
         grind
+
+theorem VarMap.push_valid {var : Name} {varT : SSAType} {mutVars vars : VarMap} (hvarT : Array.get mutVars var = some varT) (hMut₂ : ∀ x ∈ mutVars, vars.get x.1 = some x.2) : ∀ (x : Name × SSAType), x ∈ mutVars → (Array.push vars (var, varT)).get x.1 = some x.2 := by
+    simp [VarMap.get_push]
+    have : Array.get mutVars var = Array.get vars var := by
+        have := VarMap.mem_get mutVars var varT hvarT
+        specialize hMut₂ _ this
+        grind
+    have : Array.get vars var = varT := by grind
+    grind

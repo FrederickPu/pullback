@@ -1,4 +1,6 @@
-import Mathlib
+import Lean.Elab.Tactic.Basic
+import Lean.Meta.Tactic.Replace
+import Lean.Meta.Tactic.Rewrite
 
 open Lean Lean.Elab.Tactic Lean.Meta
 
@@ -31,7 +33,6 @@ def matchBindSome (goal : MVarId) (fvarId : FVarId) : MetaM (Option Name) :=
       | .lam name _ _ _ => name
       | _ => `val
     let binderName :=
-      let s := rawName.toString
       if rawName.isInternal || rawName.hasMacroScopes then `dolift else rawName
     return some binderName
 
@@ -53,7 +54,7 @@ def applyBindSomeIff (goal : MVarId) (hypId : FVarId) : MetaM (MVarId × FVarId)
     let hypName := (← goal.getDecl).lctx.get! hypId |>.userName
     let newGoal ← goal.assert hypName newTy newVal
     let (newHypId, newGoal) ← newGoal.intro1
-    let newGoal ← newGoal.clear hypId
+    let newGoal ← newGoal.tryClear hypId
     return (newGoal, newHypId)
 
 def destructBindSome (goal : MVarId) (hypId : FVarId) (witName : Name) (hWitName : Name) (hypName : Name) : MetaM MVarId :=
@@ -133,7 +134,7 @@ def applyIsSomeIff (goal : MVarId) (hypId : FVarId) : MetaM (MVarId × FVarId) :
     let hypName := (← goal.withContext getLCtx).get! hypId |>.userName
     let newGoal ← goal.assert hypName newTy newVal
     let (newHypId, newGoal) ← newGoal.intro1P
-    let newGoal ← newGoal.clear hypId
+    let newGoal ← newGoal.tryClear hypId
     return (newGoal, newHypId)
 
 def destructIsSome (goal : MVarId) (hypId : FVarId) (witName : Name) (hypName : Name) : MetaM MVarId :=

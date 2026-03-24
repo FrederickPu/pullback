@@ -273,6 +273,33 @@ theorem SSAExpr.welltyped_app_iff (vars : VarMap) (f x : SSAExpr) : ((f.app x).i
       Option.pure_def, Option.bind_eq_bind, Option.some.injEq, eq_iff_iff, iff_true]
     sorry
 
+theorem SSAExpr.welltyped_letE_of_welltyped_val_body
+        (vars : VarMap) (name : Name) (val body : SSAExpr) (valT : SSAType)
+        (hval : val.inferType vars = some valT)
+        (hbody : (body.inferType (vars.push (name, valT))).isSome) :
+        ((SSAExpr.letE name val body).inferType vars).isSome := by
+        simp [SSAExpr.inferType, hval, hbody]
+
+theorem SSAExpr.welltyped_letE_iff
+        (vars : VarMap) (name : Name) (val body : SSAExpr) :
+        ((SSAExpr.letE name val body).inferType vars).isSome ↔
+            ∃ valT,
+                val.inferType vars = some valT ∧
+                (body.inferType (vars.push (name, valT))).isSome := by
+        constructor
+        · intro h
+          rcases Option.isSome_iff_exists.mp h with ⟨bodyT, hlet⟩
+          simp [SSAExpr.inferType, Option.bind_eq_some_iff] at hlet
+          rcases hlet with ⟨valT, hval, hbody⟩
+          exact ⟨valT, hval, Option.isSome_iff_exists.mpr ⟨bodyT, hbody⟩⟩
+        · intro h
+          rcases h with ⟨valT, hval, hbody⟩
+          exact SSAExpr.welltyped_letE_of_welltyped_val_body vars name val body valT hval hbody
+
+theorem SSAExpr.inferType_letE_app (vars : VarMap) (name : Name) (val : SSAExpr) (f a : SSAExpr) :
+    (SSAExpr.letE name val (f.app a)).inferType! vars = ((SSAExpr.letE name val f).app (.letE name val a)).inferType! vars := by
+    rfl
+
 theorem SSAType.type_fun_eq_dom_codom (ftype : SSAType) (dom codom : SSAType) : ftype.funDom? = dom → ftype.funCodom? = codom → ftype = .fun dom codom := sorry
 
 theorem SSAType.dom_isSome_iff_codom_isSome (ftype : SSAType) : ftype.funDom?.isSome ↔ ftype.funCodom?.isSome := sorry
