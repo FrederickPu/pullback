@@ -149,6 +149,51 @@ def SSAExpr.inferType! (vars : VarMap) : SSAExpr → SSAType
     (.ofBase .unit) -- dummy value this is failure case
 | lam varName varType body => .fun varType (body.inferType! (vars.push (varName, varType)))
 
+inductive SSAValue where
+| expr : SSAExpr → SSAValue
+| closure (lam : SSAExpr → Option SSAExpr) : SSAValue
+
+def SSAValue.expr? : SSAValue → Option SSAExpr
+| expr e => some e
+| closure _ => none
+
+def SSAExpr.evalValue (args : Array (Name × SSAValue)) : SSAExpr → Option SSAValue
+  | const base     => pure <| .expr <| .const base
+  | letE name val body => do body.evalValue (args.push (name, ← val.evalValue args))
+  | var name       => (args.findLast? (·.1 == name)).map (·.2)
+  | lam varName _ body => pure <| .closure (fun x => do (← body.evalValue (args.push (varName, .expr x))).expr?)
+  | app f x        => do
+      match ← f.evalValue args with
+      | .closure f' => pure <| .expr <| ← f' (← (← x.evalValue args).expr?)
+      | _ => none
+
+def SSAExpr.eval (args : Array (Name × SSAConst)) : SSAExpr → Option SSAConst :=
+    fun x => do
+        match ← x.evalValue (args.map fun (a, b) => (a, .expr <| .const b)) with
+        | .expr (.const c) => some c
+        | _ => none
+
+def SSAExpr.eval! (args : Array (Name × SSAConst)) : SSAExpr → SSAConst := sorry
+
+theorem SSAExpr.eval_letE
+    (args : Array (Name × SSAConst))
+    (name : Name)
+    (val body : SSAExpr) :
+    (SSAExpr.letE name val body).eval args = body.eval args := sorry
+
+theorem SSAExpr.eval_letE_fresh
+    (args : Array (Name × SSAConst))
+    (name : Name)
+    (val body : SSAExpr) :
+    (SSAExpr.letE name val body).eval args = body.eval args :=
+    SSAExpr.eval_letE args name val body
+
+theorem SSAExpr.eval_isSome_inferType (vars : VarMap) (args : Array (Name × SSAConst))
+    (expr : SSAExpr) (v : SSAConst)
+    (heval : expr.eval args = some v) :
+    (expr.inferType vars).isSome := by
+    sorry
+
 theorem SSAExpr.inferType_eq_some_inferType!_of_isSome (vars : VarMap) : (expr : SSAExpr) →(expr.inferType vars).isSome → expr.inferType vars = expr.inferType! vars
 | const base => by simp only [inferType, Option.isSome_some, inferType!, imp_self]
 | letE name val body => by
