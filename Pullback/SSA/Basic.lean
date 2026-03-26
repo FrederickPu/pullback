@@ -229,6 +229,10 @@ theorem Array.find?_eq_getElem_findFinIdx? {α : Type u} (xs : Array α) (p : α
 #check ForIn
 def SSA.loop {α β : Type u} {m : Type u → Type v} [Monad m] [Inhabited α] (init : α) (step : α → (α → m β) → m β) : m β := sorry
 
+lemma SSA.loop_unfold {α β : Type u} {m : Type u → Type v} [Monad m] [Inhabited α]
+    (init : α) (step : α → (α → m β) → m β) :
+    SSA.loop init step = step init (fun x => SSA.loop x step) := sorry
+
 private def SSABaseType.decEq : (ty : SSABaseType) → DecidableEq ty.type
 | float => by
     simp [SSABaseType.type]

@@ -102,45 +102,52 @@ def SSADo.toSSAExpr! (vars : VarMap) (mutVars : VarMap) (kMutVars : VarMap) (kbr
     SSAExpr.letE nKBreak kbreak' <| SSAExpr.letE nKContinue continue' <|
     SSAExpr.app (SSAExpr.app (SSAExpr.app (.const (.ifthenelse tExprType)) cond) texpr) (eExpr)
 
-def SSAExpr.eval (args : Arr): SSAExpr → Option SSAConst := sorry
+def SSAExpr.eval (args : Array (Name × SSAConst)): SSAExpr → Option SSAConst := sorry
+
+def SSAExpr.eval! (args : Array (Name × SSAConst)): SSAExpr → SSAConst := sorry
 
 def SSADo.loopStep (args : Array (Name × SSAConst)) (mutvars : Array (Name × SSAConst)) : SSADo → Option (ForInStep SSAConst) := sorry
 
 inductive LoopStep where
 | continue (mutvars : Array (Name × SSAConst)) : LoopStep
 | break (mutvars : Array (Name × SSAConst)) : LoopStep
-
-inductive DoResult (α : Type) where
-/- early return-/
-| return (a : SSAConst) : DoResult α
-| pure (a : α) : DoResult α
 deriving Inhabited
 
-instance : Inhabited (DoResult (if (!inloop) = true then SSAConst else LoopStep)) := sorry
+inductive DoResult where
+/- early return-/
+| return (a : SSAConst) : DoResult
+| pure (a : LoopStep) : DoResult
+deriving Inhabited
+
 
 #check StateT.run_modify
 
-def SSADo.eval (args : Array (Name × SSAConst)) (inloop : Bool := false) : SSADo → StateT (Array (Name × SSAConst)) Option (DoResult (if !inloop then SSAConst else LoopStep))
+def SSADo.eval (args : Array (Name × SSAConst)) (inloop : Bool := false) : SSADo → StateT (Array (Name × SSAConst)) Option (if !inloop then SSAConst else DoResult)
 | expr x => do
     let c ← x.eval args
     if h : !inloop then
-        some (DoResult.pure (cast (by grind) c))
+        some <| cast (by grind) c
     else
+        if (← x.eval args).inferType != .ofBase .unit then
+            none
         -- since all break, continue, return are trailing, expr will only be with inloop := true if it is a trailing expr
-        some (DoResult.pure (cast (by grind) (LoopStep.continue (← get))))
+        some (cast (by grind) (DoResult.pure (LoopStep.continue (← get))))
 /- todo :: don't discard s₁ after switching to non identity monad -/
 -- note that all break, continue, return will be trailing in their respective scopes so s₁ can be evaluated with inloop := false
 | seq s₁ s₂ => s₂.eval args inloop
 | letE var val rest => do
     -- cannot shadow mutvars
     if (← get).any (·.1 == var) then
-        failure
+        none
     rest.eval (args.push (var, ← val.eval args)) inloop
 | letM var val rest => do
     if args.any (·.1 == var) then
-        failure
-    modify (·.push (var, ← val.eval args))
-    rest.eval (args.push (var, ← val.eval args)) inloop
+        none
+    let before ← get
+    set (before.push (var, ← val.eval args))
+    let x ← rest.eval (args.push (var, ← val.eval args)) inloop
+    set before
+    return x
 | assign var val rest => do
     let mutvars ← get
     let idx ← (mutvars).findFinIdx? (·.1 == var)
@@ -149,7 +156,11 @@ def SSADo.eval (args : Array (Name × SSAConst)) (inloop : Bool := false) : SSAD
 | loop body rest => do
     SSA.loop Unit.unit (fun x kcontinue => do
         match (← body.eval args true) with
-        | .return x => pure (DoResult.return x)
+        | .return x => pure (
+            if h : inloop then
+                cast (by grind) (DoResult.return x)
+            else
+                cast (by grind) x)
         | .pure x =>
             match x with
             | .continue x => set x; kcontinue ()
@@ -157,28 +168,34 @@ def SSADo.eval (args : Array (Name × SSAConst)) (inloop : Bool := false) : SSAD
                 set x
                 rest.eval args inloop
     )
-| .break => do  if h : inloop then some (DoResult.pure (cast (by grind) (LoopStep.break (← get)))) else none
-| .continue => do if h : inloop then some (DoResult.pure (cast (by grind) (LoopStep.continue (← get)))) else none
-| .return x => do  some (DoResult.return (← x.eval args))
+| .break => do  if h : inloop then some (cast (by grind) (DoResult.pure (LoopStep.break (← get)))) else none
+| .continue => do if h : inloop then some (cast (by grind) (DoResult.pure (LoopStep.continue (← get)))) else none
+| .return x => do
+    let res ← x.eval args
+    some (
+    if h : inloop then
+        cast (by grind) <| DoResult.return res
+    else
+        cast (by grind) res)
 | ifthenelse c t e rest => do
     let res ←
         if c.eval args != SSAConst.ofInt (0 : Int) then
             t.eval args inloop
         else
             e.eval args inloop
-    match res with
-    | .return x => some <| .return x
-    | .pure x =>  some (← rest.eval args inloop)
+    if h : inloop then
+        match cast (β := DoResult) (by grind) res with
+        | .return x => some <| (cast (by grind) <| DoResult.return x)
+        | .pure x =>  some (← rest.eval args inloop)
+    else
+        return res
 
-theorem SSADo.toSSAExpr_eq_of_vars_equiv (vars₁ vars₂ : VarMap) (mutVars contMutVars : VarMap) (kbreak kcontinue : Option Name) (hvars : vars₁.equiv vars₂) : (s : SSADo) → s.toSSAExpr! vars₁ mutVars contMutVars kbreak kcontinue = s.toSSAExpr! vars₂ mutVars contMutVars kbreak kcontinue := sorry
+
 
 /-
     name `k` referes to a valid continutation for the current mutvars
 -/
 def SSADo.validContinutation (vars : VarMap) (mutVars : VarMap) (continueMutVars : VarMap) (k : Name) (prog : SSADo) := ¬ mutVars.any (·.1 = k) ∧ (do pure <| (← vars.get k).funDom? = (mkMutTuple continueMutVars).2) = some true ∧ k ∉ prog.vars
-
--- example (l r : List Nat) : l ⊆ r → ∀ x ∈ l, x ∈ r := by grind only [= List.subset_def,
---   #0b8b]
 
 #check VarMap.get_eq_none_iff_not_any
 theorem SSADo.validContinutation_push_of_not_mut (vars : VarMap) (mutVars : VarMap) (continueMutVars : VarMap) (k knew: Name) (prog : SSADo) (ktype : SSAType) (hk : vars.get k = some ktype) (hknew : ∀ var ∈ vars, var.1 ≠ knew) (hknew₁ : knew ∉ prog.vars) (var : Name) (hknew' : knew ≠ var) (varType : SSAType) (hMut₂ : mutVars.toList ⊆ vars.toList) : (SSADo.validContinutation vars mutVars continueMutVars k prog) → (SSADo.validContinutation ((vars.push (knew, ktype)).push (var, varType)) mutVars continueMutVars knew prog) := by
