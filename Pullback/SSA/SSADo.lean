@@ -227,17 +227,11 @@ theorem SSADo.eval_letE
         (htype_eq : val.inferType! vars = v.inferType) :
     (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue (SSADo.letE var val rest)).eval args =
         (SSADo.toSSAExpr! (vars.push (var, v.inferType)) mutVars kMutVars kbreak kcontinue rest).eval (args.push (var, v)) := by
-    -- toSSAExpr! for letE produces: SSAExpr.letE var val (rest.compile (vars.push (var, val.inferType! vars)))
-    have step1 : (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue (SSADo.letE var val rest)).eval args =
-        (SSAExpr.letE var val (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) mutVars kMutVars kbreak kcontinue)).eval args := by
-        rfl
-    -- SSAExpr.eval_letE strips the let binding
-    have step2 : (SSAExpr.letE var val (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) mutVars kMutVars kbreak kcontinue)).eval args =
-        (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) mutVars kMutVars kbreak kcontinue).eval args := by
-        exact SSAExpr.eval_letE args var val _
     rw [← htype_eq]
-    sorry
-    -- simp [hval, SSAExpr.eval, SSAExpr.evalValue]
+    simpa [SSADo.toSSAExpr!] using
+      SSAExpr.eval_letE_push_of_eval args var val
+        (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) mutVars kMutVars kbreak kcontinue)
+        v hval
 
 theorem SSADo.eval_letM
     {vars mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
@@ -247,17 +241,11 @@ theorem SSADo.eval_letM
     (htype_eq : val.inferType! vars = v.inferType) :
     (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue (SSADo.letM var val rest)).eval args =
         (SSADo.toSSAExpr! (vars.push (var, v.inferType)) (mutVars.push (var, v.inferType)) kMutVars kbreak kcontinue rest).eval (args.push (var, v)) := by
-    -- toSSAExpr! for letM produces: SSAExpr.letE var val (rest.compile (vars.push (var, val.inferType! vars), mutVars.push (...)))
-    have step1 : (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue (SSADo.letM var val rest)).eval args =
-        (SSAExpr.letE var val (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) (mutVars.push (var, val.inferType! vars)) kMutVars kbreak kcontinue)).eval args := by
-        rfl
-    -- SSAExpr.eval_letE strips the let binding
-    have step2 : (SSAExpr.letE var val (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) (mutVars.push (var, val.inferType! vars)) kMutVars kbreak kcontinue)).eval args =
-        (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) (mutVars.push (var, val.inferType! vars)) kMutVars kbreak kcontinue).eval args := by
-        exact SSAExpr.eval_letE args var val _
     rw [← htype_eq]
-    sorry
-    -- exact (step1.trans step2)
+    simpa [SSADo.toSSAExpr!] using
+      SSAExpr.eval_letE_push_of_eval args var val
+        (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) (mutVars.push (var, val.inferType! vars)) kMutVars kbreak kcontinue)
+        v hval
 
 theorem SSADo.eval_toSSAExpr_push_assign_invariant
     {vars mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
@@ -265,13 +253,13 @@ theorem SSADo.eval_toSSAExpr_push_assign_invariant
     {var : Name} {val : SSAExpr} {rest : SSADo} :
     (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) mutVars kMutVars kbreak kcontinue).eval args =
     (rest.toSSAExpr! vars mutVars kMutVars kbreak kcontinue).eval args := by
-        sorry
+    sorry
 
 theorem SSADo.eval_assign
     {vars mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
     {args : Array (Name × SSAConst)}
     {var : Name} {val : SSAExpr} {rest : SSADo} {v : SSAConst}
-    (hval : val.eval args = some v) :
+    (_hval : val.eval args = some v) :
     (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue (SSADo.assign var val rest)).eval args =
             (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue rest).eval args := by
     have hassign_bridge :

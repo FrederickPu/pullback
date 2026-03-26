@@ -173,6 +173,18 @@ def SSAExpr.eval (args : Array (Name × SSAConst)) : SSAExpr → Option SSAConst
         | .expr (.const c) => some c
         | _ => none
 
+theorem SSAExpr.eval_letE_push_of_eval
+    (args : Array (Name × SSAConst))
+    (name : Name)
+    (val body : SSAExpr)
+    (v : SSAConst)
+    (hval : val.eval args = some v) :
+    (SSAExpr.letE name val body).eval args = body.eval (args.push (name, v)) := by
+    unfold SSAExpr.eval at hval
+    unfold SSAExpr.evalValue at hval
+    option_elim
+    grind [SSAExpr.eval, SSAExpr.evalValue]
+
 def SSAExpr.eval! (args : Array (Name × SSAConst)) : SSAExpr → SSAConst := sorry
 
 theorem SSAExpr.eval_letE
