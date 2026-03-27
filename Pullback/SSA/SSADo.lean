@@ -248,7 +248,6 @@ theorem SSADo.eval_letM
         v hval
 
 
-#check SSADo.toSSAExpr!
 theorem SSADo.toSSAExpr!_vars_equiv
     {vars₁ vars₂ mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
     (hvars : VarMap.equiv vars₁ vars₂) :
@@ -294,13 +293,14 @@ theorem SSADo.toSSAExpr!_vars_equiv
     simp [toSSAExpr!_vars_equiv hvars, SSAExpr.inferType!_eq_of_vars_equiv hvars]
 | ifthenelse c t e rest => by
     simp [toSSAExpr!]
-    have : freshName (Array.map (fun x => x.1) vars₁ ++ (t.vars ++ e.vars)) =
-    freshName (Array.map (fun x => x.1) vars₂ ++ (t.vars ++ e.vars)) := sorry
-    simp [this]
-    simp [toSSAExpr!_vars_equiv hvars, SSAExpr.inferType!_eq_of_vars_equiv hvars]
-    -- rw [toSSAExpr!_vars_equiv (vars₂ := vars₂), SSAExpr.inferType!_eq_of_vars_equiv (vars₂ := vars₂)]
-    -- apply And.intro
-    sorry
+    have hfresh :
+        freshName (Array.map (fun x => x.1) vars₁ ++ (t.vars ++ e.vars)) =
+        freshName (Array.map (fun x => x.1) vars₂ ++ (t.vars ++ e.vars)) := by
+        sorry
+    have hEqPush : ∀ kb τ, VarMap.equiv (Array.push vars₁ (kb, τ)) (Array.push vars₂ (kb, τ)) :=
+        VarMap.equiv_push vars₁ vars₂ hvars
+    simp [hfresh]
+    simp [toSSAExpr!_vars_equiv hvars, toSSAExpr!_vars_equiv (hEqPush _ _), SSAExpr.inferType!_eq_of_vars_equiv hvars, SSAExpr.inferType!_eq_of_vars_equiv (hEqPush _ _)]
 
 theorem SSADo.toSSAExpr_var_push
     {vars mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
