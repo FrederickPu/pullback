@@ -98,6 +98,7 @@ theorem SSADo.validContinutationRef_assign_elim {vars mutVars continueMutVars} (
 #check SSADo
 
 #check HEq
+#check SSAExpr.eval_ifthenelse_app
 
 def DoResult.applyContinutations
     (onBreak onContinue : Array (Name × SSAConst) → SSAConst) :
@@ -151,6 +152,11 @@ def SSADo.contRuntimeSpec
     (∀ {args' : Array (Name × SSAConst)} {st : Array (Name × SSAConst)} {kc : Name},
         kcontinue = some kc →
         ((SSAExpr.app (SSAExpr.var kc) (mkMutTuple kMutVars).1).eval args' = some (onContinue st)))
+
+def SSADo.mutStateTypingAlign
+    (mutVars : VarMap) : Prop :=
+    ∀ (st : Array (Name × SSAConst)) (var : Name) (idx : Fin st.size),
+        mutVars.get var = some (st[idx].2.inferType)
 
 -- ---------------------------------------------------------------------------
 -- Alignment propagation lemmas
@@ -273,6 +279,103 @@ lemma SSADo.continuationValuesAlign_push
                 simp [hkcontinue, hv]
               simpa [Array.findLast?, hNe] using h.2 st
 
+lemma SSADo.hMut₂_letE_push
+    {vars mutVars : VarMap} {var : Name} {ty : SSAType}
+    (hMut₂ : ∀ x ∈ mutVars, vars.get x.1 = some x.2)
+    (hvar_notin_mut : ¬ mutVars.any (·.1 = var)) :
+    ∀ x ∈ mutVars, (vars.push (var, ty)).get x.1 = some x.2 := by
+    intro x hx
+    have hx_old : vars.get x.1 = some x.2 := hMut₂ x hx
+    have hx_ne : x.1 ≠ var := by
+        intro hEq
+        apply hvar_notin_mut
+        have hx_get : ∃ a, mutVars.get x.1 = some a := VarMap.get_mem mutVars x.1 x.2 hx
+        rcases hx_get with ⟨a, hget⟩
+        have hx_any : mutVars.any (·.1 = x.1) :=
+            VarMap.get_eq_some_imp_any mutVars x.1 a hget
+        simpa [hEq] using hx_any
+    have hne' : var ≠ x.1 := by
+        intro hEq
+        exact hx_ne hEq.symm
+    have hpush := VarMap.get_push vars (var, ty) x.1
+    simpa [hpush, hne'] using hx_old
+
+lemma SSADo.hMut₃_letE_push
+    {mutVars : VarMap}
+    (hMut₃ : SSADo.mutStateTypingAlign mutVars) :
+    SSADo.mutStateTypingAlign mutVars := by
+    exact hMut₃
+
+lemma SSADo.hMut₁_letM_push
+    {mutVars : VarMap} {var : Name} {ty : SSAType}
+    (_hMut₁ : (mutVars.toList.map (·.1)).Nodup)
+    (hMut₁' : ((mutVars.push (var, ty)).toList.map (·.1)).Nodup) :
+    ((mutVars.push (var, ty)).toList.map (·.1)).Nodup := by
+    exact hMut₁'
+
+lemma SSADo.hMut₁_letM_push_of_not_any
+    {mutVars : VarMap} {var : Name} {ty : SSAType}
+    (hMut₁ : (mutVars.toList.map (·.1)).Nodup)
+    (hvar_notin_mut : ¬ mutVars.any (·.1 = var)) :
+    ((mutVars.push (var, ty)).toList.map (·.1)).Nodup := by
+    have hnotmem : var ∉ mutVars.toList.map (·.1) := by
+        intro hmem
+        apply hvar_notin_mut
+        have hx : ∃ x ∈ mutVars.toList, x.1 = var := by
+            simpa [List.mem_map] using hmem
+        rcases hx with ⟨x, hxlist, hxeq⟩
+        have hxarr : x ∈ mutVars := by
+            simpa [Array.mem_toList_iff] using hxlist
+        rcases VarMap.get_mem mutVars x.1 x.2 hxarr with ⟨a, hget⟩
+        have hanyx : mutVars.any (·.1 = x.1) :=
+            VarMap.get_eq_some_imp_any mutVars x.1 a hget
+        simpa [hxeq] using hanyx
+    have hconcat : (mutVars.toList.map (·.1) ++ [var]).Nodup := by
+        have haux : ∀ l : List Name, l.Nodup → var ∉ l → (l ++ [var]).Nodup := by
+            intro l hnd
+            induction hnd with
+            | nil =>
+                intro _
+                simp
+            | @cons a l ha_not_mem htl_nodup ih =>
+                intro hvar_not_mem
+                have hvar_not_mem_tl : var ∉ l := by
+                    intro hIn
+                    apply hvar_not_mem
+                    simp [hIn]
+                have htail : (l ++ [var]).Nodup := ih hvar_not_mem_tl
+                have ha_ne_var : a ≠ var := by
+                    intro hEq
+                    apply hvar_not_mem
+                    simp [hEq]
+                have ha_not_mem_self : a ∉ l := by
+                    intro hIn
+                    exact (ha_not_mem a hIn) rfl
+                simp [ha_not_mem_self, htail, ha_ne_var]
+        exact haux (mutVars.toList.map (·.1)) hMut₁ hnotmem
+    simpa [Array.toList_push, List.map_append] using hconcat
+
+lemma SSADo.hMut₂_letM_push
+    {vars mutVars : VarMap} {var : Name} {ty : SSAType}
+    (hMut₂ : ∀ x ∈ mutVars, vars.get x.1 = some x.2)
+    (hvar_notin_mut : ¬ mutVars.any (·.1 = var)) :
+    ∀ x ∈ (mutVars.push (var, ty)), (vars.push (var, ty)).get x.1 = some x.2 := by
+    intro x hx
+    simp at hx
+    cases hx with
+    | inl hxOld =>
+        exact hMut₂_letE_push (vars := vars) (mutVars := mutVars) (var := var) (ty := ty) hMut₂ hvar_notin_mut x hxOld
+    | inr hEq =>
+        subst hEq
+        simp [VarMap.get_push]
+
+lemma SSADo.hMut₃_letM_push
+    {mutVars : VarMap} {var : Name} {ty : SSAType}
+    (_hMut₃ : SSADo.mutStateTypingAlign mutVars)
+    (hMut₃' : SSADo.mutStateTypingAlign (mutVars.push (var, ty))) :
+    SSADo.mutStateTypingAlign (mutVars.push (var, ty)) := by
+    exact hMut₃'
+
 -- ---------------------------------------------------------------------------
 -- toSSAExpr! correctness lemmas
 -- Each takes an IH (r.property from the recursive evalprop call) as a hypothesis.
@@ -295,11 +398,12 @@ theorem SSAExpr.eval_isSome_inferType_local (vars : VarMap) (args : Array (Name 
     (expr.inferType vars).isSome := by
     exact SSAExpr.eval_isSome_inferType vars args expr v heval
 
+#check SSAExpr.eval_isSome_inferType_eq
 theorem SSAExpr.eval_inferType_eq_local (vars : VarMap) (args : Array (Name × SSAConst))
     (expr : SSAExpr) (v : SSAConst)
     (heval : expr.eval args = some v) :
     expr.inferType vars = some v.inferType := by
-    sorry
+    exact SSAExpr.eval_isSome_inferType_eq vars args expr v heval
 
 lemma SSADo.compilesTo_expr_false_core
     {vars mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
@@ -427,12 +531,32 @@ lemma SSADo.compilesTo_assign
     {args : Array (Name × SSAConst)} {inloop : Bool}
     {onBreak onContinue : Array (Name × SSAConst) → SSAConst}
     {var : Name} {val : SSAExpr} {rest : SSADo} {v : SSAConst}
+    {mutTy : SSAType}
     {x : if !inloop then SSAConst else DoResult}
+    (hmut_type : vars.get var = some mutTy)
+    (hty : v.inferType == mutTy)
     (hval : val.eval args = some v)
     (ih : compileProp vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue rest x) :
     compileProp vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue
                 (SSADo.assign var val rest) x := by
-        simpa [compileProp] using Eq.trans (SSADo.eval_assign hval) ih
+        have hv_eq : v.inferType = mutTy := by
+            simpa using hty
+        have hInferTypeEq : val.inferType vars = val.inferType! vars :=
+            SSAExpr.inferType_eq_some_inferType!_of_isSome vars val
+                (SSAExpr.eval_isSome_inferType_local vars args val v hval)
+        have hEvalTypeEq : val.inferType vars = some v.inferType :=
+            SSAExpr.eval_inferType_eq_local vars args val v hval
+        have hval_type : val.inferType! vars = v.inferType := by
+            apply Option.some.inj
+            calc
+                some (val.inferType! vars) = val.inferType vars := by simpa using hInferTypeEq.symm
+                _ = some v.inferType := hEvalTypeEq
+        have hvar_type : vars.get var = some (val.inferType! vars) := by
+            calc
+                vars.get var = some mutTy := hmut_type
+                _ = some v.inferType := by simp [hv_eq]
+                _ = some (val.inferType! vars) := by simp [hval_type]
+        simpa [compileProp] using Eq.trans (SSADo.eval_assign hvar_type hval) ih
 
 lemma SSADo.compilesTo_loop_return
     {vars mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
@@ -526,11 +650,11 @@ lemma SSADo.compilesTo_ifthenelse_return
                 (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue (SSADo.ifthenelse c t e rest)).eval args =
                 (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue
                         (if c.eval args != SSAConst.ofInt 0 then t else e)).eval args := by
-            sorry
+            exact SSADo.eval_ifthenelse_branch
         have ih' : compileProp vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue
                 (if c.eval args != SSAConst.ofInt 0 then t else e)
                 (cast (by grind) (DoResult.return x)) := by
-            sorry
+            simpa [compileProp, hcast, h] using ih
         simpa [compileProp, h, DoResult.applyContinutations]
             using Eq.trans hif_return_bridge ih'
 
@@ -539,13 +663,12 @@ lemma SSADo.compilesTo_ifthenelse_rest
     {args : Array (Name × SSAConst)} {inloop : Bool}
     {onBreak onContinue : Array (Name × SSAConst) → SSAConst}
     {c : SSAExpr} {t e rest : SSADo} {x : if !inloop then SSAConst else DoResult}
+    (hif_rest_bridge :
+        (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue (SSADo.ifthenelse c t e rest)).eval args =
+        (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue rest).eval args)
     (ih : compileProp vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue rest x) :
     compileProp vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue
                 (SSADo.ifthenelse c t e rest) x := by
-        have hif_rest_bridge :
-                (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue (SSADo.ifthenelse c t e rest)).eval args =
-                (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue rest).eval args := by
-            sorry
         simpa [compileProp] using Eq.trans hif_rest_bridge ih
 
 lemma SSADo.compilesTo_ifthenelse_base
@@ -553,7 +676,7 @@ lemma SSADo.compilesTo_ifthenelse_base
     {args : Array (Name × SSAConst)} {inloop : Bool}
     {onBreak onContinue : Array (Name × SSAConst) → SSAConst}
     {c : SSAExpr} {t e rest : SSADo} {x : if !inloop then SSAConst else DoResult}
-    (hn : ¬inloop)
+    (_hn : ¬inloop)
     (ih : compileProp vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue
         (if c.eval args != SSAConst.ofInt 0 then t else e) x) :
     compileProp vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue
@@ -562,7 +685,7 @@ lemma SSADo.compilesTo_ifthenelse_base
         (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue (SSADo.ifthenelse c t e rest)).eval args =
         (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue
             (if c.eval args != SSAConst.ofInt 0 then t else e)).eval args := by
-      sorry
+            exact SSADo.eval_ifthenelse_branch
     simpa [compileProp] using Eq.trans hif_base_bridge ih
 
 -- ---------------------------------------------------------------------------
@@ -577,7 +700,10 @@ def SSADo.evalprop
     (hArgs : SSADo.argsAlignVars vars args kbreak kcontinue)
     (hContTy : SSADo.continuationTypesAlign vars kMutVars kbreak kcontinue contTy)
     (hContVal : SSADo.continuationValuesAlign args kbreak kcontinue onBreak onContinue)
-    (hContRuntime : SSADo.contRuntimeSpec kMutVars kbreak kcontinue inloop onBreak onContinue) :
+    (hContRuntime : SSADo.contRuntimeSpec kMutVars kbreak kcontinue inloop onBreak onContinue)
+    (hMut₁ : (mutVars.toList.map (·.1)).Nodup)
+    (hMut₂ : ∀ x ∈ mutVars, vars.get x.1 = some x.2)
+    (hMut₃ : SSADo.mutStateTypingAlign mutVars) :
     (prog : SSADo) →
     StateT (Array (Name × SSAConst)) Option
         { x : if !inloop then SSAConst else DoResult //
@@ -612,67 +738,99 @@ def SSADo.evalprop
                     (fun kc hk => hContinueAppEval hContVal hk)⟩
 | seq s₁ s₂ => do
     let r ← s₂.evalprop vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue contTy
-        hArgs hContTy hContVal hContRuntime
+        hArgs hContTy hContVal hContRuntime hMut₁ hMut₂ hMut₃
     pure ⟨r.val, compilesTo_seq r.property⟩
 | letE var val rest => do
     if (← get).any (·.1 == var) then none
     else
-        if hkb' : kbreak = some var then none
+        if hmutshadow : mutVars.any (·.1 = var) then none
         else
-            if hkc' : kcontinue = some var then none
+            if hkb' : kbreak = some var then none
             else
-                let ⟨v, hv⟩ ← (val.eval args).attach
-                let r ← rest.evalprop (vars.push (var, v.inferType)) mutVars kMutVars kbreak kcontinue
-                    (args.push (var, v)) inloop onBreak onContinue contTy
-                    (argsAlignVars_push hArgs rfl)
-                    (continuationTypesAlign_push hContTy hkb' hkc')
-                    (continuationValuesAlign_push hContVal hkb' hkc')
-                    hContRuntime
-                pure ⟨r.val, compilesTo_letE hv (SSAExpr.eval_isSome_inferType_local vars args val v hv) r.property⟩
+                if hkc' : kcontinue = some var then none
+                else
+                    let ⟨v, hv⟩ ← (val.eval args).attach
+                    let r ← rest.evalprop (vars.push (var, v.inferType)) mutVars kMutVars kbreak kcontinue
+                        (args.push (var, v)) inloop onBreak onContinue contTy
+                        (argsAlignVars_push hArgs rfl)
+                        (continuationTypesAlign_push hContTy hkb' hkc')
+                        (continuationValuesAlign_push hContVal hkb' hkc')
+                        hContRuntime
+                        hMut₁
+                        (hMut₂_letE_push hMut₂ hmutshadow)
+                        (hMut₃_letE_push (mutVars := mutVars) hMut₃)
+                    pure ⟨r.val, compilesTo_letE hv (SSAExpr.eval_isSome_inferType_local vars args val v hv) r.property⟩
 | letM var val rest => do
     if hshadow : args.any (·.1 == var) then none
     else
-        let before ← get
-        let ⟨v, hv⟩ ← (val.eval args).attach
-        set (before.push (var, v))
-        have hkb' : kbreak ≠ some var := by
-            intro hk
-            have hBreak := hContVal.1
-            rw [hk] at hBreak
-            rcases hBreak args with ⟨c, hcfind, _⟩
-            have hAny : args.any (·.1 == var) = true :=
-                Array.findLast?_eq_some_imp_any_fst_eq args var c hcfind
-            simp [hshadow] at hAny
-        have hkc' : kcontinue ≠ some var := by
-            intro hk
-            have hCont := hContVal.2
-            rw [hk] at hCont
-            rcases hCont args with ⟨c, hcfind, _⟩
-            have hAny : args.any (·.1 == var) = true :=
-                Array.findLast?_eq_some_imp_any_fst_eq args var c hcfind
-            simp [hshadow] at hAny
-        let r ← rest.evalprop (vars.push (var, v.inferType)) (mutVars.push (var, v.inferType)) kMutVars
-            kbreak kcontinue (args.push (var, v)) inloop onBreak onContinue contTy
-            (argsAlignVars_push hArgs rfl)
-            (continuationTypesAlign_push hContTy hkb' hkc')
-            (continuationValuesAlign_push hContVal hkb' hkc')
-            hContRuntime
-        set before
-        pure ⟨r.val, compilesTo_letM hv (SSAExpr.eval_isSome_inferType_local vars args val v hv) r.property⟩
+        if hmutshadow : mutVars.any (·.1 = var) then none
+        else
+            let before ← get
+            let ⟨v, hv⟩ ← (val.eval args).attach
+            set (before.push (var, v))
+            have hkb' : kbreak ≠ some var := by
+                intro hk
+                have hBreak := hContVal.1
+                rw [hk] at hBreak
+                rcases hBreak args with ⟨c, hcfind, _⟩
+                have hAny : args.any (·.1 == var) = true :=
+                    Array.findLast?_eq_some_imp_any_fst_eq args var c hcfind
+                simp [hshadow] at hAny
+            have hkc' : kcontinue ≠ some var := by
+                intro hk
+                have hCont := hContVal.2
+                rw [hk] at hCont
+                rcases hCont args with ⟨c, hcfind, _⟩
+                have hAny : args.any (·.1 == var) = true :=
+                    Array.findLast?_eq_some_imp_any_fst_eq args var c hcfind
+                simp [hshadow] at hAny
+            let r ← rest.evalprop (vars.push (var, v.inferType)) (mutVars.push (var, v.inferType)) kMutVars
+                kbreak kcontinue (args.push (var, v)) inloop onBreak onContinue contTy
+                (argsAlignVars_push hArgs rfl)
+                (continuationTypesAlign_push hContTy hkb' hkc')
+                (continuationValuesAlign_push hContVal hkb' hkc')
+                hContRuntime
+                (hMut₁_letM_push hMut₁ (hMut₁_letM_push_of_not_any hMut₁ hmutshadow))
+                (hMut₂_letM_push hMut₂ hmutshadow)
+                (hMut₃_letM_push (mutVars := mutVars) (var := var) (ty := v.inferType) hMut₃ (by
+                    have hget_none : mutVars.get var = none := by
+                        cases hget : mutVars.get var with
+                        | none => rfl
+                        | some ty =>
+                            exfalso
+                            exact hmutshadow (VarMap.get_eq_some_imp_any mutVars var ty hget)
+                    have hFalse : False := by
+                        have hAlign := hMut₃ (#[(var, SSAConst.ofInt (0 : Int))]) var ⟨0, by simp⟩
+                        simp [hget_none] at hAlign
+                    exact False.elim hFalse))
+            set before
+            pure ⟨r.val, compilesTo_letM hv (SSAExpr.eval_isSome_inferType_local vars args val v hv) r.property⟩
 | assign var val rest => do
     let mutvars ← get
     let idx ← mutvars.findFinIdx? (·.1 == var)
     let ⟨v, hv⟩ ← (val.eval args).attach
-    set (mutvars.set idx (var, v))
-    let r ← rest.evalprop vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue contTy
-        hArgs hContTy hContVal hContRuntime
-    pure ⟨r.val, compilesTo_assign hv r.property⟩
+    if hty : v.inferType == (mutvars[idx].2.inferType) then
+        set (mutvars.set idx (var, v))
+        have hmutvars_type : mutVars.get var = some (mutvars[idx].2.inferType) := by
+            exact hMut₃ mutvars var idx
+        have hmut_mem : (var, mutvars[idx].2.inferType) ∈ mutVars := by
+            exact VarMap.mem_get mutVars var (mutvars[idx].2.inferType) hmutvars_type
+        have hmut_type : vars.get var = some (mutvars[idx].2.inferType) := by
+            exact hMut₂ (var, mutvars[idx].2.inferType) hmut_mem
+        let r ← rest.evalprop vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue contTy
+            hArgs hContTy hContVal hContRuntime hMut₁ hMut₂ hMut₃
+        pure ⟨r.val, compilesTo_assign hmut_type hty hv r.property⟩
+    else
+        none
 | loop body rest =>
     let nKBreak   := freshName (vars.map (·.1) ++ body.vars) `kbreak
     let nKContinue := freshName (vars.map (·.1) ++ body.vars) `kcontinue
     SSA.loop Unit.unit fun _ kloopContinue => do
         let br ← body.evalprop vars mutVars mutVars (some nKBreak) (some nKContinue) args true
             (fun _ => sorry) (fun _ => sorry) contTy (by sorry) (by sorry) (by sorry)
+            (by sorry)
+            hMut₁
+            hMut₂
             (by sorry)
         match cast (β := DoResult) (by grind) br.val with
         | .return x =>
@@ -681,7 +839,7 @@ def SSADo.evalprop
         | .pure (.break st) =>
             set st
             (rest.evalprop vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue contTy
-                hArgs hContTy hContVal hContRuntime).map fun r => ⟨r.val, compilesTo_loop_break (by sorry) r.property⟩
+                hArgs hContTy hContVal hContRuntime hMut₁ hMut₂ hMut₃).map fun r => ⟨r.val, compilesTo_loop_break (by sorry) r.property⟩
         | .pure (.continue st) =>
             set st; kloopContinue ()
 | .break => do
@@ -721,7 +879,7 @@ def SSADo.evalprop
 | ifthenelse c t e rest =>
     if h_cond : c.eval args != SSAConst.ofInt (0 : Int) then do
         let r ← t.evalprop vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue contTy
-            hArgs hContTy hContVal hContRuntime
+            hArgs hContTy hContVal hContRuntime hMut₁ hMut₂ hMut₃
         if h : inloop then
             match hcast : cast (β := DoResult) (by grind) r.val with
             | .return x =>
@@ -731,7 +889,8 @@ def SSADo.evalprop
                 pure ⟨cast (by grind) (DoResult.return x), compilesTo_ifthenelse_return h hcast ih⟩
             | .pure _ =>
                 (rest.evalprop vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue contTy
-                    hArgs hContTy hContVal hContRuntime).map fun r => ⟨r.val, compilesTo_ifthenelse_rest r.property⟩
+                    hArgs hContTy hContVal hContRuntime hMut₁ hMut₂ hMut₃).map fun r => ⟨r.val, compilesTo_ifthenelse_rest (by
+                        exact SSADo.eval_ifthenelse_rest) r.property⟩
         else
             have ih : compileProp vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue
                     (if c.eval args != SSAConst.ofInt 0 then t else e) r.val := by
@@ -739,7 +898,7 @@ def SSADo.evalprop
             pure ⟨r.val, compilesTo_ifthenelse_base (by grind) ih⟩
     else do
         let r ← e.evalprop vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue contTy
-            hArgs hContTy hContVal hContRuntime
+            hArgs hContTy hContVal hContRuntime hMut₁ hMut₂ hMut₃
         if h : inloop then
             match hcast : cast (β := DoResult) (by grind) r.val with
             | .return x =>
@@ -749,7 +908,8 @@ def SSADo.evalprop
                 pure ⟨cast (by grind) (DoResult.return x), compilesTo_ifthenelse_return h hcast ih⟩
             | .pure _ =>
                 (rest.evalprop vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue contTy
-                    hArgs hContTy hContVal hContRuntime).map fun r => ⟨r.val, compilesTo_ifthenelse_rest r.property⟩
+                    hArgs hContTy hContVal hContRuntime hMut₁ hMut₂ hMut₃).map fun r => ⟨r.val, compilesTo_ifthenelse_rest (by
+                        exact SSADo.eval_ifthenelse_rest) r.property⟩
         else
             have ih : compileProp vars mutVars kMutVars kbreak kcontinue args inloop onBreak onContinue
                     (if c.eval args != SSAConst.ofInt 0 then t else e) r.val := by

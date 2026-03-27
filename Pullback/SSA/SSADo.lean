@@ -148,8 +148,12 @@ def SSADo.eval (args : Array (Name × SSAConst)) (inloop : Bool := false) : SSAD
 | assign var val rest => do
     let mutvars ← get
     let idx ← (mutvars).findFinIdx? (·.1 == var)
-    set (mutvars.set idx (var, ← val.eval args))
-    rest.eval args inloop
+    let val' ← val.eval args
+    if val'.inferType == mutvars[idx].2.inferType then
+        set (mutvars.set idx (var, val'))
+        rest.eval args inloop
+    else
+        none
 | loop body rest => do
     SSA.loop Unit.unit (fun x kcontinue => do
         match (← body.eval args true) with
@@ -344,6 +348,23 @@ theorem SSADo.eval_assign
         simpa [SSADo.toSSAExpr!] using SSAExpr.eval_letE args var val
             (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) mutVars kMutVars kbreak kcontinue)
     exact (Eq.trans hlet hassign_bridge)
+
+theorem SSADo.eval_ifthenelse_branch
+    {vars mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
+    {args : Array (Name × SSAConst)}
+    {c : SSAExpr} {t e rest : SSADo} :
+    (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue (SSADo.ifthenelse c t e rest)).eval args =
+    (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue
+        (if c.eval args != SSAConst.ofInt 0 then t else e)).eval args := by
+    sorry
+
+theorem SSADo.eval_ifthenelse_rest
+    {vars mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
+    {args : Array (Name × SSAConst)}
+    {c : SSAExpr} {t e rest : SSADo} :
+    (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue (SSADo.ifthenelse c t e rest)).eval args =
+    (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue rest).eval args := by
+    sorry
 
 
 /-

@@ -173,6 +173,18 @@ def SSAExpr.eval (args : Array (Name × SSAConst)) : SSAExpr → Option SSAConst
         | .expr (.const c) => some c
         | _ => none
 
+theorem SSAExpr.eval_ifthenelse_app
+    (args : Array (Name × SSAConst))
+    (ty : SSAType)
+    (cond t e : SSAExpr) :
+    (SSAExpr.app (SSAExpr.app (SSAExpr.app (.const (.ifthenelse ty)) cond) t) e).eval args =
+        (do
+            let c ← cond.eval args
+            let tv ← t.eval args
+            let ev ← e.eval args
+            pure (if c != SSAConst.ofInt (0 : Int) then tv else ev)) := by
+    sorry
+
 theorem SSAExpr.eval_letE_push_of_eval
     (args : Array (Name × SSAConst))
     (name : Name)
@@ -200,10 +212,16 @@ theorem SSAExpr.eval_letE_fresh
     (SSAExpr.letE name val body).eval args = body.eval args :=
     SSAExpr.eval_letE args name val body
 
+theorem SSAExpr.eval_isSome_inferType_eq (vars : VarMap) (args : Array (Name × SSAConst))
+    (expr : SSAExpr) (v : SSAConst)
+    (heval : expr.eval args = some v) :
+        expr.inferType vars = some v.inferType := by
+    sorry
+
 theorem SSAExpr.eval_isSome_inferType (vars : VarMap) (args : Array (Name × SSAConst))
     (expr : SSAExpr) (v : SSAConst)
     (heval : expr.eval args = some v) :
-    (expr.inferType vars).isSome := by
+        (expr.inferType vars).isSome := by
     sorry
 
 theorem SSAExpr.inferType_eq_some_inferType!_of_isSome (vars : VarMap) : (expr : SSAExpr) →(expr.inferType vars).isSome → expr.inferType vars = expr.inferType! vars
