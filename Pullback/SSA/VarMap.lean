@@ -28,8 +28,17 @@ theorem VarMap.get_eq_none_iff_not_any (vars : VarMap) (key : Name) : vars.get k
 def VarMap.equiv (vars₁ vars₂ : VarMap) : Prop :=
     {name | vars₁.any (·.1 = name)} = {name | vars₂.any (·.1 = name)} ∧ ∀ name, vars₁.any (·.1 = name) → vars₁.get name = vars₂.get name
 
-def VarMap.equiv_push (vars₁ vars₂ : VarMap) (hvars : vars₁.equiv vars₂) (varname : Name) (vartype : SSAType) : (cast (β := VarMap) rfl (vars₁.push (varname, vartype))).equiv (vars₂.push (varname, vartype)) := by
-    simp only [cast_eq]
+def VarMap.equiv_symm {vars₁ vars₂ : VarMap} : vars₁.equiv vars₂ → vars₂.equiv vars₁ := by
+    simp only [equiv, Array.any_eq_true', decide_eq_true_eq, forall_exists_index, and_imp]
+    intro h1 h2
+    have : ∀ (name : Name) (x : Name × SSAType), x ∈ vars₂ → x.1 = name → Array.get vars₂ name = Array.get vars₁ name := by
+        intro name a ha1 ha2
+        rw [Set.ext_iff] at h1
+        specialize h1 a.1
+        grind
+    tauto
+
+def VarMap.equiv_push (vars₁ vars₂ : VarMap) (hvars : vars₁.equiv vars₂) (varname : Name) (vartype : SSAType) : VarMap.equiv (vars₁.push (varname, vartype)) (vars₂.push (varname, vartype)) := by
     simp only [equiv, Array.any_eq_true, decide_eq_true_eq, forall_exists_index, Array.size_push, Array.any_push', Bool.or_eq_true] at ⊢ hvars
     apply And.intro
     · ext name
@@ -37,7 +46,7 @@ def VarMap.equiv_push (vars₁ vars₂ : VarMap) (hvars : vars₁.equiv vars₂)
       grind only [usr Set.mem_setOf_eq]
     · intro name H
       have := VarMap.get_push
-      simp only [cast_eq, Prod.forall] at this
+      simp only [Prod.forall] at this
       rw [this]
       cases em (varname = name) with
       | inl hl =>
@@ -49,6 +58,8 @@ def VarMap.equiv_push (vars₁ vars₂ : VarMap) (hvars : vars₁.equiv vars₂)
       | inr hr =>
         simp [hr]
         grind only
+
+def VarMap.equiv_push_of_shadow (vars : VarMap) (varname : Name) (vartype : SSAType) (hvar_type : vars.get varname = some vartype): VarMap.equiv vars (vars.push (varname, vartype)) := sorry
 
 theorem SSAExpr.inferType_eq_of_vars_equiv (vars₁ vars₂ : VarMap) (hvars : vars₁.equiv vars₂) : (expr : SSAExpr) → expr.inferType vars₁ = expr.inferType vars₂
 | const c => by simp only [inferType]
@@ -120,3 +131,8 @@ theorem VarMap.push_valid {var : Name} {varT : SSAType} {mutVars vars : VarMap} 
         grind
     have : Array.get vars var = varT := by grind
     grind
+
+theorem SSAExpr.inferType!_eq_of_vars_equiv {vars₁ vars₂ : VarMap} (hvars : VarMap.equiv vars₁ vars₂) {expr : SSAExpr} :
+    expr.inferType! vars₁ = expr.inferType! vars₂ := sorry
+
+#check mkMutTuple

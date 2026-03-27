@@ -247,25 +247,97 @@ theorem SSADo.eval_letM
         (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) (mutVars.push (var, val.inferType! vars)) kMutVars kbreak kcontinue)
         v hval
 
-theorem SSADo.eval_toSSAExpr_push_assign_invariant
-    {vars mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
-    {args : Array (Name × SSAConst)}
-    {var : Name} {val : SSAExpr} {rest : SSADo} :
-    (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) mutVars kMutVars kbreak kcontinue).eval args =
-    (rest.toSSAExpr! vars mutVars kMutVars kbreak kcontinue).eval args := by
+
+#check SSADo.toSSAExpr!
+theorem SSADo.toSSAExpr!_vars_equiv
+    {vars₁ vars₂ mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
+    (hvars : VarMap.equiv vars₁ vars₂) :
+    {rest : SSADo} →
+    (rest.toSSAExpr! vars₁ mutVars kMutVars kbreak kcontinue) =
+    (rest.toSSAExpr! vars₂ mutVars kMutVars kbreak kcontinue)
+| expr x => by
+    simp [toSSAExpr!]
+| letE varName val body => by
+    simp only [toSSAExpr!, SSAExpr.letE.injEq, true_and]
+    apply SSADo.toSSAExpr!_vars_equiv
+    have : SSAExpr.inferType! vars₁ val = SSAExpr.inferType! vars₂ val :=
+      SSAExpr.inferType!_eq_of_vars_equiv hvars
+    rw [this]
+    exact VarMap.equiv_push vars₁ vars₂ hvars varName (SSAExpr.inferType! vars₂ val)
+| letM varName val body => by
+    simp only [toSSAExpr!, SSAExpr.letE.injEq, true_and]
+    have : SSAExpr.inferType! vars₁ val = SSAExpr.inferType! vars₂ val :=
+      SSAExpr.inferType!_eq_of_vars_equiv hvars
+    rw [this]
+    apply toSSAExpr!_vars_equiv
+    exact VarMap.equiv_push vars₁ vars₂ hvars varName (SSAExpr.inferType! vars₂ val)
+| assign varname val body => by
+    simp [toSSAExpr!]
+    apply SSADo.toSSAExpr!_vars_equiv
+    have : SSAExpr.inferType! vars₁ val = SSAExpr.inferType! vars₂ val :=
+      SSAExpr.inferType!_eq_of_vars_equiv hvars
+    rw [this]
+    exact VarMap.equiv_push vars₁ vars₂ hvars varname (SSAExpr.inferType! vars₂ val)
+| .return out => by simp [toSSAExpr!]
+| .break => by simp [toSSAExpr!]
+| .continue => by simp [toSSAExpr!]
+| seq s₁ s₂ => by
+    simp [toSSAExpr!]
+    apply And.intro
+    · exact toSSAExpr!_vars_equiv hvars
+    · exact toSSAExpr!_vars_equiv hvars
+| loop body rest => by
+    simp [toSSAExpr!]
+    have : freshName (Array.map (fun x => x.1) vars₁ ++ body.vars) =
+    freshName (Array.map (fun x => x.1) vars₂ ++ body.vars) := sorry
+    simp [this]
+    simp [toSSAExpr!_vars_equiv hvars, SSAExpr.inferType!_eq_of_vars_equiv hvars]
+| ifthenelse c t e rest => by
+    simp [toSSAExpr!]
+    have : freshName (Array.map (fun x => x.1) vars₁ ++ (t.vars ++ e.vars)) =
+    freshName (Array.map (fun x => x.1) vars₂ ++ (t.vars ++ e.vars)) := sorry
+    simp [this]
+    simp [toSSAExpr!_vars_equiv hvars, SSAExpr.inferType!_eq_of_vars_equiv hvars]
+    -- rw [toSSAExpr!_vars_equiv (vars₂ := vars₂), SSAExpr.inferType!_eq_of_vars_equiv (vars₂ := vars₂)]
+    -- apply And.intro
     sorry
+
+theorem SSADo.toSSAExpr_var_push
+    {vars mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
+    {var : Name} {val : SSAExpr} {rest : SSADo} :
+    (hvar_type : vars.get var = some (val.inferType! vars)) →
+    (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) mutVars kMutVars kbreak kcontinue) =
+    (rest.toSSAExpr! vars mutVars kMutVars kbreak kcontinue) := by
+    intro hvar_type
+    have hpush_equiv : VarMap.equiv (vars.push (var, val.inferType! vars)) vars := by
+        apply VarMap.equiv_symm
+        apply  VarMap.equiv_push_of_shadow
+        grind
+    simpa using SSADo.toSSAExpr!_vars_equiv
+        (vars₁ := (vars.push (var, val.inferType! vars)))
+        (vars₂ := vars)
+        (mutVars := mutVars)
+        (kMutVars := kMutVars)
+        (kbreak := kbreak)
+        (kcontinue := kcontinue)
+        (rest := rest)
+        hpush_equiv
 
 theorem SSADo.eval_assign
     {vars mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
     {args : Array (Name × SSAConst)}
     {var : Name} {val : SSAExpr} {rest : SSADo} {v : SSAConst}
+    (hvar_type : vars.get var = some (val.inferType! vars))
     (_hval : val.eval args = some v) :
     (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue (SSADo.assign var val rest)).eval args =
             (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue rest).eval args := by
     have hassign_bridge :
             (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) mutVars kMutVars kbreak kcontinue).eval args =
             (rest.toSSAExpr! vars mutVars kMutVars kbreak kcontinue).eval args := by
-        exact SSADo.eval_toSSAExpr_push_assign_invariant
+        exact congrArg (fun e => e.eval args) <|
+            SSADo.toSSAExpr_var_push (vars := vars) (mutVars := mutVars) (kMutVars := kMutVars)
+                (kbreak := kbreak) (kcontinue := kcontinue) (var := var) (val := val)
+                (rest := rest) hvar_type
     have hlet :
             (SSADo.toSSAExpr! vars mutVars kMutVars kbreak kcontinue (SSADo.assign var val rest)).eval args =
             (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) mutVars kMutVars kbreak kcontinue).eval args := by
