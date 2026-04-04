@@ -35,11 +35,15 @@ def SSAType.funCodom? : SSAType → Option SSAType
 | .fun _ β => β
 | _ => none
 
-inductive SSAConst where
+inductive SSABaseConst where
 /- use Rat instead of Float for underlying value since Float is opaque -/
-| ofFloat : Rat → SSAConst
-| ofInt : Int → SSAConst
-| ofUnit : Unit → SSAConst
+| float : Rat → SSABaseConst
+| int : Int → SSABaseConst
+| unit : Unit → SSABaseConst
+deriving DecidableEq
+
+inductive SSAConst where
+| ofBase : SSABaseConst → SSAConst
 | loop (ty out : SSAType) : SSAConst
 | prod (α β : SSAType) : SSAConst
 | prod₁ (α β : SSAType) : SSAConst
@@ -100,11 +104,13 @@ def Array.get (map : VarMap) (key : Name) : Option SSAType :=
 
 #check Array.find?_eq_some_iff_getElem
 
+def SSABaseConst.inferType : SSABaseConst → SSABaseType
+| .float _ => .float
+| .int _ => .int
+| .unit _ => .unit
 
 def SSAConst.inferType : SSAConst → SSAType
-| ofFloat _ => .ofBase .float
-| ofInt _ => .ofBase .int
-| ofUnit _ => .ofBase .unit
+| .ofBase b => .ofBase b.inferType
 | loop ty out => .fun (ty) <|
         .fun (.fun (ty) (.fun (.fun ty out) out))
         out
@@ -157,11 +163,19 @@ def SSAValue.expr? : SSAValue → Option SSAExpr
 | expr e => some e
 | closure _ => none
 
+#check SSAConst
 def SSAExpr.evalValue (args : Array (Name × SSAValue)) : SSAExpr → Option SSAValue
-  | const base     => pure <| .expr <| .const base
+  | const c     => some <| .expr (.const c)
   | letE name val body => do body.evalValue (args.push (name, ← val.evalValue args))
   | var name       => (args.findLast? (·.1 == name)).map (·.2)
   | lam varName _ body => pure <| .closure (fun x => do (← body.evalValue (args.push (varName, .expr x))).expr?)
+  | app (app (.const .or) x) y =>
+    match x.evalValue args, y.evalValue args with
+    | some (.expr (.const <| .ofBase (.int xi))), some (.expr (.const <| .ofBase (.int yi))) =>
+        some <| .expr <| .const <| .ofBase <| .int <|
+            if xi == (1: Int) ∨ yi == (1:Int) then 1 else 0
+    | _, _ => none
+  -- TODO :: handle app evaluation cases for other consts
   | app f x        => do
       match ← f.evalValue args with
       | .closure f' => pure <| .expr <| ← f' (← (← x.evalValue args).expr?)
@@ -182,7 +196,7 @@ theorem SSAExpr.eval_ifthenelse_app
             let c ← cond.eval args
             let tv ← t.eval args
             let ev ← e.eval args
-            pure (if c != SSAConst.ofInt (0 : Int) then tv else ev)) := by
+            pure (if c != SSAConst.ofBase (.int (0 : Int)) then tv else ev)) := by
     sorry
 
 theorem SSAExpr.eval_letE_push_of_eval
@@ -192,25 +206,29 @@ theorem SSAExpr.eval_letE_push_of_eval
     (v : SSAConst)
     (hval : val.eval args = some v) :
     (SSAExpr.letE name val body).eval args = body.eval (args.push (name, v)) := by
-    unfold SSAExpr.eval at hval
-    unfold SSAExpr.evalValue at hval
-    option_elim
-    grind [SSAExpr.eval, SSAExpr.evalValue]
+    unfold SSAExpr.eval
+    simp [SSAExpr.evalValue, hval]
+    sorry
 
 def SSAExpr.eval! (args : Array (Name × SSAConst)) : SSAExpr → SSAConst := sorry
 
 theorem SSAExpr.eval_letE
     (args : Array (Name × SSAConst))
     (name : Name)
-    (val body : SSAExpr) :
-    (SSAExpr.letE name val body).eval args = body.eval args := sorry
+    (val body : SSAExpr)
+    (v : SSAConst)
+    (hval : val.eval args = some v) :
+    (SSAExpr.letE name val body).eval args = body.eval (args.push (name, v)) := by
+    exact SSAExpr.eval_letE_push_of_eval args name val body v hval
 
 theorem SSAExpr.eval_letE_fresh
     (args : Array (Name × SSAConst))
     (name : Name)
-    (val body : SSAExpr) :
-    (SSAExpr.letE name val body).eval args = body.eval args :=
-    SSAExpr.eval_letE args name val body
+    (val body : SSAExpr)
+    (v : SSAConst)
+    (hval : val.eval args = some v) :
+    (SSAExpr.letE name val body).eval args = body.eval (args.push (name, v)) :=
+    SSAExpr.eval_letE args name val body v hval
 
 theorem SSAExpr.eval_isSome_inferType_eq (vars : VarMap) (args : Array (Name × SSAConst))
     (expr : SSAExpr) (v : SSAConst)
@@ -334,10 +352,13 @@ instance {ty : SSABaseType} : Inhabited (SSAType.ofBase ty).type := by
 
 instance {ty : SSAType} : Inhabited ty.type := sorry
 
+def SSABaseConst.interp : (e : SSABaseConst) → (e.inferType).type
+| float f => f
+| int i => i
+| unit () => ()
+
 def SSAConst.interp : (e : SSAConst) → (e.inferType).type
-| ofFloat f => f
-| ofInt i => i
-| ofUnit () => ()
+| ofBase b => b.interp
 | ifthenelse ty => fun c t e => if (cast (by simp [SSAType.type, SSABaseType.type]) c : Int) != 0 then t else e
 | loop ty out => SSA.loop (m := Id)
 | prod α β => (@Prod.mk α.type β.type)
@@ -488,7 +509,7 @@ def SSAExpr.interp! (vars : VarMap) : (e : SSAExpr) → DVector (Array.toList (v
     | none => ()
 
 def mkMutTuple : VarMap → SSAExpr × SSAType
-| ⟨[]⟩ => (.const (SSAConst.ofUnit ()), .ofBase .unit)
+| ⟨[]⟩ => (.const (SSAConst.ofBase (.unit ())), .ofBase .unit)
 | ⟨[(name, type)]⟩ => (.var name, type)
 | ⟨(name, type)::b::l⟩ =>
     let (rightExpr, rightType) := mkMutTuple ⟨(b::l)⟩;
@@ -496,7 +517,7 @@ def mkMutTuple : VarMap → SSAExpr × SSAType
 termination_by as => as.size
 
 theorem SSAExpr.inferType_mkMutTuple (vars : VarMap) : (mutVars : VarMap) → (h' : ∀ x ∈ mutVars, vars.get x.1 = x.2) → (mkMutTuple mutVars).fst.inferType vars = (mkMutTuple mutVars).snd
-| ⟨[]⟩ => by simp [inferType, mkMutTuple, SSAConst.inferType]
+| ⟨[]⟩ => by simp [inferType, mkMutTuple, SSAConst.inferType, SSABaseConst.inferType]
 | ⟨[(name, type)]⟩ => by
     simp only [List.mem_toArray,
       List.mem_cons, List.not_mem_nil, or_false, forall_eq, mkMutTuple, inferType, imp_self]
