@@ -63,6 +63,13 @@ inductive SSAExpr where
 | lam (varName : Name) (varType : SSAType) (body : SSAExpr) : SSAExpr
 deriving Inhabited, DecidableEq
 
+def SSAExpr.size : SSAExpr → Nat
+  | const _          => 1
+  | var _            => 1
+  | lam _ _ body     => 1 + body.size
+  | letE _ val body  => 1 + val.size + body.size
+  | app f x          => 1 + f.size + x.size
+
 abbrev VarMap := Array (Name × SSAType)
 
 def Fin.last' {n : Nat} [NeZero n] : Fin n :=
@@ -163,123 +170,51 @@ def SSAValue.expr? : SSAValue → Option SSAExpr
 | expr e => some e
 | closure _ => none
 
-#check SSAConst
-def SSAExpr.evalValue (args : Array (Name × SSAValue)) : SSAExpr → Option SSAValue
-  | const c     => some <| .expr (.const c)
-  | letE name val body => do body.evalValue (args.push (name, ← val.evalValue args))
-  | var name       => (args.findLast? (·.1 == name)).map (·.2)
-  | lam varName _ body => pure <| .closure (fun x => do (← body.evalValue (args.push (varName, .expr x))).expr?)
-  | app (app (.const .or) x) y =>
-    match x.evalValue args, y.evalValue args with
-    | some (.expr (.const <| .ofBase (.int xi))), some (.expr (.const <| .ofBase (.int yi))) =>
-        some <| .expr <| .const <| .ofBase <| .int <|
+def SSAExpr.reduceAux (env : Array (Name × Option SSAExpr)) : (fuel : Nat) → (e : SSAExpr) → Option SSAExpr
+| n, const c => some (.const c)
+| n + 1, letE name val body => do body.reduceAux (env.push (name, ← val.reduceAux env (n + 1))) n
+| n, var name => do
+    -- instantiate variable if was defined by a letE, leave as a free variable if it is a function binder
+    match (← env.findLast? (·.1 == name)).2 with
+    | some x => x
+    | none   => var name
+| n, lam varName varType body => lam varName varType body
+| n, app (app (.const .or) x ) y =>
+    match x.reduceAux env n, y.reduceAux env n with
+    | some (.const <| .ofBase (.int xi)), some (.const <| .ofBase (.int yi)) =>
+        some <| .const <| .ofBase <| .int <|
             if xi == (1: Int) ∨ yi == (1:Int) then 1 else 0
     | _, _ => none
-  -- TODO :: handle app evaluation cases for other consts
-  | app f x        => do
-      match ← f.evalValue args with
-      | .closure f' => pure <| .expr <| ← f' (← (← x.evalValue args).expr?)
-      | _ => none
+-- TODO :: handle app evaluation cases for other consts
+| n + 1, app f x => do
+    match ← f.reduceAux env (n+1) with
+    | lam varName varType body =>
+        body.reduceAux (env.push (varName, some (← x.reduceAux env (n + 1)))) n
+    | _ => none
+| _, _ => none
+
+/-
+    the returned output `e'` and all subexpressions of `e'` will statisfy the following:
+    - all letE's are instantiated
+    - function typed expressions will be of form `.lam ...` (aka all functions are in normal form)
+    - none function typed expression will be of form `.const (.ofBase ...)`
+
+    moreover all expression in the enviroment need to satisfy the above conditions too
+
+    env is a variable mapping where a variable is
+    (varname, some expr) if it has a value that can be instantiated
+    (varname, none) if it is binder variable from a lambda
+-/
+def SSAExpr.reduce (env : Array (Name × Option SSAExpr)) (e : SSAExpr) : Option SSAExpr :=
+  e.reduceAux env e.size
 
 def SSAExpr.eval (args : Array (Name × SSAConst)) : SSAExpr → Option SSAConst :=
     fun x => do
-        match ← x.evalValue (args.map fun (a, b) => (a, .expr <| .const b)) with
-        | .expr (.const c) => some c
+        match ← x.reduce (args.map (fun (x, y) => (x, some (.const y)))) with
+        | .const c => some c
         | _ => none
 
-theorem SSAExpr.eval_ifthenelse_app
-    (args : Array (Name × SSAConst))
-    (ty : SSAType)
-    (cond t e : SSAExpr) :
-    (SSAExpr.app (SSAExpr.app (SSAExpr.app (.const (.ifthenelse ty)) cond) t) e).eval args =
-        (do
-            let c ← cond.eval args
-            let tv ← t.eval args
-            let ev ← e.eval args
-            pure (if c != SSAConst.ofBase (.int (0 : Int)) then tv else ev)) := by
-    sorry
-
-theorem SSAExpr.eval_letE_push_of_eval
-    (args : Array (Name × SSAConst))
-    (name : Name)
-    (val body : SSAExpr)
-    (v : SSAConst)
-    (hval : val.eval args = some v) :
-    (SSAExpr.letE name val body).eval args = body.eval (args.push (name, v)) := by
-    unfold SSAExpr.eval
-    simp [SSAExpr.evalValue, hval]
-    sorry
-
 def SSAExpr.eval! (args : Array (Name × SSAConst)) : SSAExpr → SSAConst := sorry
-
-theorem SSAExpr.eval_letE
-    (args : Array (Name × SSAConst))
-    (name : Name)
-    (val body : SSAExpr)
-    (v : SSAConst)
-    (hval : val.eval args = some v) :
-    (SSAExpr.letE name val body).eval args = body.eval (args.push (name, v)) := by
-    exact SSAExpr.eval_letE_push_of_eval args name val body v hval
-
-theorem SSAExpr.eval_letE_fresh
-    (args : Array (Name × SSAConst))
-    (name : Name)
-    (val body : SSAExpr)
-    (v : SSAConst)
-    (hval : val.eval args = some v) :
-    (SSAExpr.letE name val body).eval args = body.eval (args.push (name, v)) :=
-    SSAExpr.eval_letE args name val body v hval
-
-theorem SSAExpr.eval_isSome_inferType_eq (vars : VarMap) (args : Array (Name × SSAConst))
-    (expr : SSAExpr) (v : SSAConst)
-    (heval : expr.eval args = some v) :
-        expr.inferType vars = some v.inferType := by
-    sorry
-
-theorem SSAExpr.eval_isSome_inferType (vars : VarMap) (args : Array (Name × SSAConst))
-    (expr : SSAExpr) (v : SSAConst)
-    (heval : expr.eval args = some v) :
-        (expr.inferType vars).isSome := by
-    sorry
-
-theorem SSAExpr.inferType_eq_some_inferType!_of_isSome (vars : VarMap) : (expr : SSAExpr) →(expr.inferType vars).isSome → expr.inferType vars = expr.inferType! vars
-| const base => by simp only [inferType, Option.isSome_some, inferType!, imp_self]
-| letE name val body => by
-    intro h
-    simp only [inferType] at h
-    option_elim
-    simp [inferType, inferType!, hvalType, h]
-    have := inferType_eq_some_inferType!_of_isSome (Array.push vars (name, valType)) body (by simp [h])
-    have := inferType_eq_some_inferType!_of_isSome vars val (by grind)
-    grind
-| var name => by
-    intro h
-    simp only [inferType] at h
-    option_elim
-    simp [inferType, inferType!, h]
-| app f x => by
-    intro h
-    simp only [inferType] at h
-    option_elim
-    have := inferType_eq_some_inferType!_of_isSome vars f (by grind)
-    match hh : (f.inferType! vars).funDom? with
-    | some codom =>
-        grind [inferType, inferType!]
-    | none =>
-        grind
-| lam varName varType body => by
-    intro h
-    simp only [inferType] at h
-    option_elim
-    have := inferType_eq_some_inferType!_of_isSome (Array.push vars (varName, varType)) body (by grind)
-    grind [inferType, inferType!]
-
-
-example (vars : VarMap) (expr : SSAExpr) : (expr.inferType vars).isSome ↔ expr.inferType vars = expr.inferType! vars := by
-    apply Iff.intro
-    exact fun a => SSAExpr.inferType_eq_some_inferType!_of_isSome vars expr a
-    intro h
-    grind only [= Option.isSome_some]
 
 def SSABaseType.type : SSABaseType → Type
 | float => Rat
