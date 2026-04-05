@@ -179,24 +179,20 @@ def SSAExpr.reduceAux (env : Array (Name × Option SSAExpr)) : (fuel : Nat) → 
     | some x => x
     | none   => var name
 | n, lam varName varType body => lam varName varType body
-| n, app (app (.const .or) x ) y =>
-    match x.reduceAux env n, y.reduceAux env n with
-    | some (.const <| .ofBase (.int xi)), some (.const <| .ofBase (.int yi)) =>
-        some <| .const <| .ofBase <| .int <|
-            if xi == (1: Int) ∨ yi == (1:Int) then 1 else 0
-    | _, _ => none
 -- TODO :: handle app evaluation cases for other consts
 | n + 1, app f x => do
     match ← f.reduceAux env (n+1) with
     | lam varName varType body =>
         body.reduceAux (env.push (varName, some (← x.reduceAux env (n + 1)))) n
+    -- leave constant applications as is
+    | .const c => app (.const c) x
     | _ => none
 | _, _ => none
 
 /-
     the returned output `e'` and all subexpressions of `e'` will statisfy the following:
     - all letE's are instantiated
-    - function typed expressions will be of form `.lam ...` (aka all functions are in normal form)
+    - function typed expressions (with the exception of (`.const (.ofBase ...))` functions) will be of form `.lam ...` (aka all functions are in normal form)
     - none function typed expression will be of form `.const (.ofBase ...)`
 
     moreover all expression in the enviroment need to satisfy the above conditions too
@@ -207,6 +203,22 @@ def SSAExpr.reduceAux (env : Array (Name × Option SSAExpr)) : (fuel : Nat) → 
 -/
 def SSAExpr.reduce (env : Array (Name × Option SSAExpr)) (e : SSAExpr) : Option SSAExpr :=
   e.reduceAux env e.size
+
+/-
+ evaluate an expression that has no `lam, letE, var`, just `.const, .app`
+-/
+def SSAExpr.evalConsts (args : Array (Name × SSAConst)) :  SSAExpr → Option SSAConst
+| .app (.app (.const .or) x) y => do
+    match ← x.evalConsts args, ← y.evalConsts args with
+    | .ofBase (.int xi), .ofBase (.int yi) =>
+        some <| .ofBase <| .int <|
+        if xi != 0 ∨ yi != 0 then
+            1
+        else
+            0
+    | _, _ => none
+-- todo make evaluation rules for other constant functions
+| _ => sorry
 
 def SSAExpr.eval (args : Array (Name × SSAConst)) : SSAExpr → Option SSAConst :=
     fun x => do

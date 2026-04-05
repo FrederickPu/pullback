@@ -28,13 +28,6 @@ theorem Array.mem_isPrefixOf {α} [BEq α] [LawfulBEq α] (as bs : Array α) : a
     have : x ∈ as.toList := hx.val
     grind only [= List.subset_def, = mem_toList_iff, #d8ea]
 
-theorem Array.findLast?_eq_some_imp_any_fst_eq {β : Type}
-    (args : Array (Name × β)) (n : Name) (x : β) :
-    args.findLast? (fun p => p.1 == n) = some (n, x) → args.any (·.1 == n) = true := by
-    intro h
-    simp [Array.findLast?, Array.find?_eq_some_iff_getElem] at h ⊢
-    grind
-
 theorem SSADo.validContinutationRef_letE_elim {vars mutVars continueMutVars} : ∀ k, validContinutationRef vars mutVars continueMutVars k (letE var val rest) → validContinutationRef (vars.push (var, valT)) mutVars continueMutVars k rest := by
     intro k hk
     match k with

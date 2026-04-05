@@ -146,6 +146,16 @@ lemma reduceAux_size_le
   | letE name val body ih_val ih_body => sorry
   | app f x ih_f ih_x => sorry
 
+lemma reduce_size_le
+    (env : Array (Name × Option SSAExpr))
+    (e e' : SSAExpr)
+    (henv : ∀ i : Fin env.size, ∀ e', env[i].2 = some e' → e'.size ≤ e.size)
+    (h : e.reduce env = some e') :
+    e'.size ≤ e.size := by
+  apply reduceAux_size_le env e.size henv e e' e.size (le_refl _)
+  simpa [reduce] using h
+
+
 lemma reduceAux_eq_reduce (env : Array (Name × Option SSAExpr)) (e : SSAExpr) (n : Nat)
     (h : e.size ≤ n) :
     e.reduceAux env n = e.reduce env :=
@@ -200,85 +210,123 @@ theorem reduce_letE_ok (env : Array (Name × Option SSAExpr))
   have : (letE name val body).size = (val.size + body.size) + 1 := by grind [size]
   grind only [reduce, reduceAux, = Option.bind_apply, = Option.bind_some, reduceAux_eq_reduce]
 
-theorem reduce_app_or_ok (env : Array (Name × Option SSAExpr))
-    (x y : SSAExpr) (xi yi : Int)
-    (hx : SSAExpr.reduce env x = some (.const (.ofBase (.int xi))))
-    (hy : SSAExpr.reduce env y = some (.const (.ofBase (.int yi)))) :
-    SSAExpr.reduce env (.app (.app (.const .or) x) y) =
-      some (.const (.ofBase (.int (if xi == 1 ∨ yi == 1 then 1 else 0)))) := by
-  unfold reduce
-  simp only [size, reduceAux]
-  rw [reduceAux_eq_reduce env x _ (by omega)]
-  rw [reduceAux_eq_reduce env y _ (by omega)]
-  simp [hx, hy]
+theorem Array.findLast?_eq_some_imp_any_fst_eq {α β : Type} [BEq α]
+    (args : Array (α × β)) (n : α) (x : β) :
+    args.findLast? (fun p => p.1 == n) = some (n, x) → args.any (·.1 == n) = true := by
+    intro h
+    simp [Array.findLast?, Array.find?_eq_some_iff_getElem] at h ⊢
+    grind
 
--- ---------------------------------------------------------------------------
--- 9a. app-or — x fails to reduce
--- ---------------------------------------------------------------------------
+theorem Array.findLast?_eq_some_imp_any_fst_eq' {α β : Type} [BEq α]
+    (args : Array (α × β)) (n : α) (x : α × β) :
+    args.findLast? (fun p => p.1 == n) = some x → args.any (·.1 == n) = true := by
+    intro h
+    simp [Array.findLast?, Array.find?_eq_some_iff_getElem] at h ⊢
+    grind
 
-theorem reduce_app_or_none_left (env : Array (Name × Option SSAExpr))
-    (x y : SSAExpr)
-    (hx : SSAExpr.reduce env x = none) :
-    SSAExpr.reduce env (.app (.app (.const .or) x) y) = none := by
-  unfold reduce
-  simp only [size, reduceAux]
-  rw [reduceAux_eq_reduce env x _ (by omega)]
-  rw [reduceAux_eq_reduce env y _ (by omega)]
-  simp [hx]
-
-theorem reduce_app_or_none_right (env : Array (Name × Option SSAExpr))
-    (x y : SSAExpr)
-    (hy : SSAExpr.reduce env y = none) :
-    SSAExpr.reduce env (.app (.app (.const .or) x) y) = none := by
-  unfold reduce
-  simp only [size, reduceAux]
-  rw [reduceAux_eq_reduce env x _ (by omega)]
-  rw [reduceAux_eq_reduce env y _ (by omega)]
-  simp [hy]
-
-theorem reduce_app_or_none_nonInt (env : Array (Name × Option SSAExpr))
-    (x y : SSAExpr) (x' y' : SSAExpr)
-    (hx : SSAExpr.reduce env x = some x')
-    (hy : SSAExpr.reduce env y = some y')
-    (hni : ¬ (∃ xi : Int, x' = .const (.ofBase (.int xi))) ∨
-            ¬ (∃ yi : Int, y' = .const (.ofBase (.int yi)))) :
-    SSAExpr.reduce env (.app (.app (.const .or) x) y) = none := by
-  unfold reduce
-  simp only [size, reduceAux]
-  rw [reduceAux_eq_reduce env x _ (by omega)]
-  rw [reduceAux_eq_reduce env y _ (by omega)]
-  simp [hx, hy]
-  rcases hni with hx' | hy'
-  · sorry
-  · sorry
-
--- ---------------------------------------------------------------------------
--- 10. app (general beta) — f reduces to a lam, arg reduces, body reduces
--- ---------------------------------------------------------------------------
 
 theorem reduce_app_beta (env : Array (Name × Option SSAExpr))
     (f x : SSAExpr)
+    (henv : ∀ i : Fin env.size, ∀ e', env[i].2 = some e' → e'.size ≤ (f.app x).size)
     (varName : Name) (varType : SSAType) (lamBody : SSAExpr)
     (x' result : SSAExpr)
     (hf : SSAExpr.reduce env f = some (.lam varName varType lamBody))
     (hx : SSAExpr.reduce env x = some x')
     (hb : SSAExpr.reduce (env.push (varName, some x')) lamBody = some result) :
     SSAExpr.reduce env (.app f x) = some result := by
-  sorry
--- ---------------------------------------------------------------------------
--- 11. app (general) — f does not reduce to a lam
--- ---------------------------------------------------------------------------
+  have : (f.app x).size = (f.size + x.size) + 1 := by grind [size]
+  simp [reduce, this]
+  match h : f with
+  | lam varName' varType' body =>
+    simp [reduceAux]
+    rw [reduceAux_eq_reduce _ _ _ (by grind [size]), hx]
+    simp
+    rw [reduceAux_eq_reduce _ _ _ (by grind [size])]
+    simp [reduce, reduceAux] at hf
+    grind
+  | .const c =>
+    simp [reduce, reduceAux] at hf
+  | .letE varName' val body =>
+    have : (letE varName' val body).size  = val.size + body.size + 1 := by grind [size]
+    simp [reduce, this, reduceAux] at hf
+    rw [reduceAux_eq_reduce _ _ _ (by grind [size])] at hf
+    option_elim
+    simp [reduceAux]
+    rw [reduceAux_eq_reduce _ _ _ (by grind [size])]
+    simp [hdolift]
+    rw [reduceAux_eq_reduce _ _ _ (by grind [size])]
+    rw [reduceAux_eq_reduce _ _ _ (by grind [size])] at hf
+    simp [hf]
+    rw [reduceAux_eq_reduce _ _ _ (by grind [size])]
+    simp [hx]
+    rw [reduceAux_eq_reduce _ _ _ (by {
+        simp [size]
+        have : (lam varName varType lamBody).size ≤ body.size := sorry -- reduce_size_le _ _ _ _ _ hf
+        grind [size]
+    })]
+    grind
+  | .var name =>
+    simp [reduce, reduceAux] at hf
+    option_elim
+    match hh: dolift.2 with
+    | some q =>
+        simp [hh] at hf
+        simp [reduceAux, hdolift, hh, hf]
+        rw [reduceAux_eq_reduce _ _ _ (by grind [size]), hx]
+        simp
+        rw [reduceAux_eq_reduce _ _ _ (by {
+            have := Array.findLast?_eq_some_imp_any_fst_eq' env _ _ hdolift
+            simp only [Array.any_eq_true, beq_iff_eq] at this
+            obtain ⟨i, hi, Hi⟩ := this
+            specialize henv ⟨i, by omega⟩ q (by {
+                simp
+                sorry
+            })
+            have := henv
+            grind [size]
+        }), hb]
+    | none =>
+        simp [hh] at hf
+   | .app g q =>
+     have : (g.app q).size = g.size + q.size + 1 := by grind [size]
+     simp [reduce, this, reduceAux] at hf
+     rw [reduceAux_eq_reduce _ _ _ (by grind)] at hf
+     option_elim
+     simp [reduceAux]
+     rw [reduceAux_eq_reduce _ _ _ (by grind)]
+     simp [hdolift]
+     match dolift with
+     | lam varName' varType' body' =>
+        simp at hf
+        option_elim
+        simp
+        have : (lam varName' varType' body').size ≤ g.size := sorry
+        rw [reduceAux_eq_reduce _ _ _ (by grind)]
+        rw [reduceAux_eq_reduce _ _ _ (by grind [size])] at hf
+        rw [reduceAux_eq_reduce _ _ _ (by grind)] at hdolift
+        simp [hdolift]
+        rw [reduceAux_eq_reduce _ _ _ (by grind [size])]
+        simp [hf]
+        rw [reduceAux_eq_reduce _ _ _ (by grind), hx]
+        simp
+        have : (lam varName varType lamBody).size ≤ body'.size := sorry
+        rw [reduceAux_eq_reduce _ _ _ (by grind [size])]
+        grind
+      | .const c =>
+        simp at hf
+      | app _ _ =>
+        simp at hf
+      | letE _ _ _ =>
+        simp at hf
+      | var _ =>
+        simp at hf
 
 theorem reduce_app_not_lam (env : Array (Name × Option SSAExpr))
     (f x : SSAExpr)
     (hf : ∀ varName varType body, SSAExpr.reduce env f ≠ some (.lam varName varType body)) :
-    SSAExpr.reduce env (.app f x) = none := by
+    SSAExpr.reduce env (.app f x) = app f x := by
   unfold reduce
   sorry
-
--- ---------------------------------------------------------------------------
--- 12. app (general) — f reduces but arg fails
--- ---------------------------------------------------------------------------
 
 theorem reduce_app_arg_none (env : Array (Name × Option SSAExpr))
     (f x : SSAExpr)
