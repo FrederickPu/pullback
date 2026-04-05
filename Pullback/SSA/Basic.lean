@@ -53,7 +53,7 @@ inductive SSAConst where
 | eq (ty : SSABaseType) : SSAConst
 | and : SSAConst
 | or: SSAConst
-deriving DecidableEq
+deriving DecidableEq, Inhabited
 
 inductive SSAExpr where
 | const : SSAConst → SSAExpr
