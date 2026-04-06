@@ -4,6 +4,8 @@ open Lean
 
 variable {α β} [DecidableEq α]
 
+def Map.get_uniqueKeys (x : Map α β) (hx : x.uniqueKeys) : ∀ y ∈ x, x.get y.1 = y.2 := sorry
+
 theorem Map.get_eq_some_imp_any (vars : Map α β) (key : α) (a : β) :
         vars.get key = some a → vars.any (·.1 = key) := by
     simp [Map.get, Array.findLast?, Array.find?_eq_some_iff_getElem]

@@ -106,6 +106,7 @@ def SSADo.toSSAExpr! (vars : VarMap) (mutVars : VarMap) (kMutVars : VarMap) (kbr
 -- note: `kcontinue` doubles both as for jumping to next loop iteration and for invoking rest of the program
 -- eg in `if c then t else e; rest` the `kcontinue` gets invoked after evaluating `t` to "jump" to `rest`
 -- however the `continue` keyword in do notation is reserved for loop bodys
+-- mutArgs are the mutargs for the current scope and kMutArgs are the mut args for the calling scope. Thefore, continutations are called with kmutArgs and kmutArgs are always prefix of mutArgs.
 def SSADo.eval (args mutArgs kMutArgs : ArgMap) (kbreak kcontinue : Option (ArgMap → Option SSAConst)) : SSADo → Option SSAConst
 | expr e =>
     match kcontinue with
