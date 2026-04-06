@@ -45,7 +45,7 @@ theorem Map.submap_get_uniqueKeys {α β} [DecidableEq α] (vars₁ vars₂ : Ma
     exact get_uniqueKeys vars₁ hvars₁ x hx
 
 -- todo :: add hyps for alignment between the continutations in name and function form (kbreak and nkbreak)
-def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} {kbreak kcontinue : Option (ArgMap → Option SSAConst)} {vars mutVars kmutVars : VarMap} {nkbreak nkcontinue : Option Name}
+def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} {kbreak kcontinue : Option ({mutArgs' : ArgMap // mutArgs'.equivTypes kmutArgs} → Option SSAConst)} {vars mutVars kmutVars : VarMap} {nkbreak nkcontinue : Option Name}
     (hMut : mutVars.uniqueKeys)
     (hcontMutVars : kmutVars.isPrefixOf mutVars)
     (halign : args.submapVars vars)
@@ -53,8 +53,6 @@ def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} {kbreak kcontinue : Optio
     (halignkMut : kmutArgs.equivVars kmutVars) :
     (prog : SSADo) →
         Option {x : SSAConst //
-            (hkBreak : kbreak.All kmutArgs.validContinutation) →
-            (hkContinue : kcontinue.All kmutArgs.validContinutation) →
             (hnkBreak : nkbreak.All (prog.validContinutationRef vars mutVars kmutVars)) →
             (hnkContinue : nkcontinue.All (prog.validContinutationRef vars mutVars kmutVars)) →
             x = (prog.toSSAExpr! vars mutVars kmutVars nkbreak nkcontinue).eval args}
@@ -62,13 +60,13 @@ def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} {kbreak kcontinue : Optio
     match kcontinue with
     | some kcontinue =>
         -- todo :: don't discard `e` and use bind
-        (kcontinue kmutArgs).attachWith _
+        (kcontinue ⟨kmutArgs, sorry⟩).attachWith _
             fun x hx => sorry
     | none =>
         (e.eval args).attachWith _
             fun x hx => sorry
 | seq s₁ s₂ => do
-    let ⟨x, hx⟩ ← (s₁.eval args mutArgs kmutArgs kbreak kcontinue).attach
+    let ⟨⟨x, hx'⟩, hx⟩ ← (s₁.evalRefined hMut hcontMutVars halign halignMut halignkMut).attach
     s₂.evalRefined hMut hcontMutVars halign halignMut halignkMut |>.subtypeMap
         fun x hx => sorry
 | letE var val rest => do
@@ -114,12 +112,12 @@ def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} {kbreak kcontinue : Optio
             fun x hx => sorry
 | .break =>
     match kbreak with
-    | some kbreak' => kbreak' mutArgs |>.attachWith _
+    | some kbreak' => kbreak' ⟨mutArgs, sorry⟩ |>.attachWith _
         fun x hx => sorry
     | none => none
 | .continue =>
     match kcontinue with
-    | some kcontinue' => kcontinue' mutArgs |>.attachWith _
+    | some kcontinue' => kcontinue' ⟨mutArgs, sorry⟩ |>.attachWith _
         fun x hx => sorry
     | none => none
 | .return out =>
@@ -130,13 +128,13 @@ def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} {kbreak kcontinue : Optio
     let kcontinue' :=
         fun mutArgs' : Array (Name × SSAConst) =>
             let mutArgsNew : Array (Name × SSAConst) := (kMutArgs'.map (fun (n, _) => (n, (mutArgs'.findLast? (·.1 == n)).get!.2)))
-            rest.eval (args ++ mutArgsNew) mutArgsNew mutArgsNew kbreak kcontinue
+            rest.evalRefined (args ++ mutArgsNew) mutArgsNew mutArgsNew kbreak kcontinue
     match ← c.eval args with
     | .ofBase (.int ci) =>
         if ci != 0 then
-            t.eval args mutArgs kMutArgs' kbreak kcontinue'
+            t.eval args mutArgs kMutArgs' kbreak kcontinue' |>.attachWith _ sorry
         else
-            e.eval args mutArgs kMutArgs kbreak kcontinue'
+            e.eval args mutArgs kMutArgs' kbreak kcontinue' |>.attachWith _ sorry
     | _ => none
 
 theorem SSADo.eval_eq_eval_toSSAExpr! {kbreak kcontinue : Option (ArgMap → Option SSAConst)} {nkbreak nkcontinue : Option Name} {args mutArgs kmutArgs : ArgMap} {vars mutVars kmutVars : VarMap}

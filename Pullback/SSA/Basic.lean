@@ -113,6 +113,10 @@ def Map.get {α β} [DecidableEq α] (map : Map α β) (key : α) : Option β :=
 
 def Map.uniqueKeys {α β} [DecidableEq α] (x : Map α β) := (x.toList.map (·.1)).Nodup
 
+def Map.keys {α β} [DecidableEq α] (x : Map α β) := x.map (·.1)
+
+def Map.keysEq {α β} [DecidableEq α] (x y : Map α β) := x.keys = y.keys
+
 def SSABaseConst.inferType : SSABaseConst → SSABaseType
 | .float _ => .float
 | .int _ => .int

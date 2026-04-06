@@ -164,7 +164,7 @@ def SSADo.eval (args mutArgs kMutArgs : ArgMap) (kbreak kcontinue : Option (ArgM
         if ci != 0 then
             t.eval args mutArgs kMutArgs' kbreak kcontinue'
         else
-            e.eval args mutArgs kMutArgs kbreak kcontinue'
+            e.eval args mutArgs kMutArgs' kbreak kcontinue'
     | _ => none
 
 /-
