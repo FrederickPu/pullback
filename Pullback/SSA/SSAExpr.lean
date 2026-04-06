@@ -10,7 +10,7 @@ theorem SSAExpr.inferType_eq_of_vars_submap (vars₁ vars₂ : VarMap) (hvars : 
     rw [← inferType_eq_of_vars_submap vars₁ vars₂ hvars val]
     obtain ⟨bodyT, valT, hvalT, hbodyT⟩ := H
     simp [hvalT, hbodyT]
-    have := inferType_eq_of_vars_submap (vars₁.push (varname, valT)) (vars₂.push (varname, valT)) (VarMap.submap_push _ _ hvars _ _) body (by grind)
+    have := inferType_eq_of_vars_submap (vars₁.push (varname, valT)) (vars₂.push (varname, valT)) (Map.submap_push _ _ hvars _ _) body (by grind)
     grind
     grind
 | lam varname type body => by
@@ -19,7 +19,7 @@ theorem SSAExpr.inferType_eq_of_vars_submap (vars₁ vars₂ : VarMap) (hvars : 
     simp [Option.isSome_iff_exists, Option.bind_eq_some_iff] at H
     obtain ⟨bodyT, hbodyT⟩ := H
     simp [hbodyT]
-    have := inferType_eq_of_vars_submap (vars₁.push (varname, type)) (vars₂.push (varname, type)) (VarMap.submap_push _ _ hvars _ _) body (by grind)
+    have := inferType_eq_of_vars_submap (vars₁.push (varname, type)) (vars₂.push (varname, type)) (Map.submap_push _ _ hvars _ _) body (by grind)
     grind
 | app f x => by
     simp only [inferType]
@@ -34,9 +34,9 @@ theorem SSAExpr.inferType_eq_of_vars_submap (vars₁ vars₂ : VarMap) (hvars : 
     intro H
     simp only [Option.isSome_iff_exists] at H
     obtain ⟨type, htype⟩ := H
-    simp only [VarMap.submap, Array.any_eq_true, decide_eq_true_eq, Set.setOf_subset_setOf,
+    simp only [Map.submap, Array.any_eq_true, decide_eq_true_eq, Set.setOf_subset_setOf,
       forall_exists_index] at hvars
-    have := VarMap.get_eq_some_imp_any _ _  _ htype
+    have := Map.get_eq_some_imp_any _ _  _ htype
     simp only [Array.any_eq_true, decide_eq_true_eq] at this
     obtain ⟨i, hi, Hi⟩ := this
     grind only
@@ -53,11 +53,11 @@ theorem SSAExpr.inferType_push_eq_of_hygenic (vars : VarMap) (newvar : Name) (ne
     simp [inferType, hvalT, crux1]
     symm
     apply SSAExpr.inferType_eq_of_vars_submap
-    simp [VarMap.submap]
+    simp [Map.submap]
     apply And.intro
     grind
     intro name hName
-    have := VarMap.get_push
+    have := Map.get_push (α := Name) (β := SSAType)
     simp at this
     simp [this]
     cases em (varName = name) with
@@ -65,7 +65,7 @@ theorem SSAExpr.inferType_push_eq_of_hygenic (vars : VarMap) (newvar : Name) (ne
         simp [hl]
     | inr hr =>
         simp [hr]
-        simp [Array.get, Array.findLast?, Array.find?_eq_some_iff_getElem]
+        simp [Map.get, Array.findLast?, Array.find?_eq_some_iff_getElem]
         grind
     grind
 | lam varname type body => by
@@ -78,11 +78,11 @@ theorem SSAExpr.inferType_push_eq_of_hygenic (vars : VarMap) (newvar : Name) (ne
     symm
     rw [← hbodyT]
     apply SSAExpr.inferType_eq_of_vars_submap
-    simp [VarMap.submap]
+    simp [Map.submap]
     apply And.intro
     grind
     intro name hName
-    have := VarMap.get_push
+    have := Map.get_push (α := Name) (β := SSAType)
     simp at this
     simp [this]
     cases em (varname = name) with
@@ -90,7 +90,7 @@ theorem SSAExpr.inferType_push_eq_of_hygenic (vars : VarMap) (newvar : Name) (ne
         simp [hl]
     | inr hr =>
         simp [hr]
-        simp [Array.get, Array.findLast?, Array.find?_eq_some_iff_getElem]
+        simp [Map.get, Array.findLast?, Array.find?_eq_some_iff_getElem]
         grind
     grind
 | app f x => by
@@ -104,11 +104,11 @@ theorem SSAExpr.inferType_push_eq_of_hygenic (vars : VarMap) (newvar : Name) (ne
 | var name => by
     intro H
     simp only [inferType, Option.isSome_iff_exists] at H
-    have := VarMap.get_push
+    have := Map.get_push (α := Name) (β := SSAType)
     simp at this
     simp [inferType, this]
     obtain ⟨t, ht⟩ := H
-    have := VarMap.get_eq_some_imp_any _ _ _ ht
+    have := Map.get_eq_some_imp_any _ _ _ ht
     simp only [Array.any_eq_true, decide_eq_true_eq] at this
     simp at hHygenic
     grind

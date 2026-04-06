@@ -70,7 +70,9 @@ def SSAExpr.size : SSAExpr → Nat
   | letE _ val body  => 1 + val.size + body.size
   | app f x          => 1 + f.size + x.size
 
-abbrev VarMap := Array (Name × SSAType)
+abbrev Map (α β : Type) := Array (α × β)
+
+abbrev VarMap := Map Name SSAType
 
 def Fin.last' {n : Nat} [NeZero n] : Fin n :=
     match h :  n with
@@ -106,10 +108,8 @@ def Array.findLastFinIdx? {α : Type u} (p : α → Bool) (as : Array α) : Opti
 }⟩;
 Fin.last' - Fin.cast (size_reverse) res) (as.reverse.findFinIdx? p)
 
-def Array.get (map : VarMap) (key : Name) : Option SSAType :=
+def Map.get {α β} [DecidableEq α] (map : Map α β) (key : α) : Option β :=
     map.findLast? (·.1 = key) |>.map (·.2)
-
-#check Array.find?_eq_some_iff_getElem
 
 def SSABaseConst.inferType : SSABaseConst → SSABaseType
 | .float _ => .float
@@ -204,10 +204,12 @@ def SSAExpr.reduceAux (env : Array (Name × Option SSAExpr)) : (fuel : Nat) → 
 def SSAExpr.reduce (env : Array (Name × Option SSAExpr)) (e : SSAExpr) : Option SSAExpr :=
   e.reduceAux env e.size
 
+abbrev ArgMap := Map Name SSAConst
+
 /-
  evaluate an expression that has no `lam, letE, var`, just `.const, .app`
 -/
-def SSAExpr.evalConsts (args : Array (Name × SSAConst)) :  SSAExpr → Option SSAConst
+def SSAExpr.evalConsts (args : ArgMap) :  SSAExpr → Option SSAConst
 | .app (.app (.const .or) x) y => do
     match ← x.evalConsts args, ← y.evalConsts args with
     | .ofBase (.int xi), .ofBase (.int yi) =>
@@ -220,13 +222,13 @@ def SSAExpr.evalConsts (args : Array (Name × SSAConst)) :  SSAExpr → Option S
 -- todo make evaluation rules for other constant functions
 | _ => sorry
 
-def SSAExpr.eval (args : Array (Name × SSAConst)) : SSAExpr → Option SSAConst :=
+def SSAExpr.eval (args : ArgMap) : SSAExpr → Option SSAConst :=
     fun x => do
         match ← x.reduce (args.map (fun (x, y) => (x, some (.const y)))) with
         | .const c => some c
         | _ => none
 
-def SSAExpr.eval! (args : Array (Name × SSAConst)) : SSAExpr → SSAConst := sorry
+def SSAExpr.eval! (args : ArgMap) : SSAExpr → SSAConst := sorry
 
 def SSABaseType.type : SSABaseType → Type
 | float => Rat
@@ -368,7 +370,7 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
 | var name, he, ctx =>
     match h : (vars.findLastFinIdx? (·.1 == name)) with
     | some x => cast (by {
-        simp [inferType, Array.get] at he
+        simp [inferType, Map.get] at he
         calc
             _ = ((Array.findLast? (fun x => decide (x.fst = name)) vars).get he).2.type := by {
                 have : x = (some x).get rfl := rfl
@@ -388,14 +390,14 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
                 exact Fin.le_last' _
             }
             _ = _ := by {
-                simp [Array.findLast?, inferType, Array.get]
+                simp [Array.findLast?, inferType, Map.get]
             }
 
     }) (ctx.get (Fin.cast (by {
         simp only [Array.toList_map, List.length_map, Array.length_toList]
     }) x))
     | none => by {
-        simp only [inferType, Array.get, Array.findLast?, Option.isSome_map] at he
+        simp only [inferType, Map.get, Array.findLast?, Option.isSome_map] at he
         simp only [Array.findLastFinIdx?, Option.map_eq_none_iff] at h
         grind only [= Option.isSome_none, = Array.find?_eq_none, = Array.findFinIdx?_eq_none_iff,
           = Array.size_reverse]
