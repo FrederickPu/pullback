@@ -136,7 +136,10 @@ def SSADo.eval (args mutArgs kMutArgs : ArgMap) (kbreak kcontinue : Option (ArgM
         none
 | loop body rest => do
     let kMutArgs' := mutArgs
-    let kcontinue' := kcontinue' kMutArgs' (← kcontinue)
+    let kcontinue ← kcontinue
+    let kcontinue' :=
+        fun mutArgs' : Array (Name × SSAConst) =>
+            kcontinue (kMutArgs'.map (fun (n, _) => (n, (mutArgs'.findLast? (·.1 == n)).get!.2)))
     SSA.loop mutArgs (fun mutArgs' kcont =>
         body.eval (args ++ mutArgs') mutArgs' kMutArgs' kcontinue' kcont)
 | .break =>
@@ -151,7 +154,10 @@ def SSADo.eval (args mutArgs kMutArgs : ArgMap) (kbreak kcontinue : Option (ArgM
     out.eval args
 | ifthenelse c t e rest => do
     let kMutArgs' := mutArgs
-    let kcontinue' := kcontinue' kMutArgs' (← kcontinue)
+    let kcontinue' :=
+        fun mutArgs' : Array (Name × SSAConst) =>
+            let mutArgsNew : Array (Name × SSAConst) := (kMutArgs'.map (fun (n, _) => (n, (mutArgs'.findLast? (·.1 == n)).get!.2)))
+            rest.eval (args ++ mutArgsNew) mutArgsNew mutArgsNew kbreak kcontinue
     match ← c.eval args with
     | .ofBase (.int ci) =>
         if ci != 0 then
@@ -159,10 +165,6 @@ def SSADo.eval (args mutArgs kMutArgs : ArgMap) (kbreak kcontinue : Option (ArgM
         else
             e.eval args mutArgs kMutArgs kbreak kcontinue'
     | _ => none
-where
-    kcontinue' (kMutArgs' : Array (Name × SSAConst)) (kcontinue : Array (Name × SSAConst) → Option SSAConst) : Array (Name × SSAConst) → Option SSAConst :=
-        fun mutArgs' : Array (Name × SSAConst) =>
-            kcontinue (kMutArgs'.map (fun (n, _) => (n, (mutArgs'.findLast? (·.1 == n)).get!.2)))
 
 /-
     name `k` referes to a valid continutation for the current mutvars

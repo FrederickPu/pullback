@@ -29,15 +29,18 @@ theorem Array.mem_isPrefixOf {α} [BEq α] [LawfulBEq α] (as bs : Array α) : a
     grind only [= List.subset_def, = mem_toList_iff, #d8ea]
 
 theorem SSADo.eval_eq_eval_toSSAExpr! {kbreak kcontinue : Option (ArgMap → Option SSAConst)} {nkbreak nkcontinue : Option Name} {args mutArgs kmutArgs : ArgMap} {vars mutVars kmutVars : VarMap}
+ (hMut₁ : (mutVars.toList.map (·.1)).Nodup) (hMut₂ : ∀ x ∈ mutVars, vars.get x.1 = some x.2)
+ (hcontMutVars : kmutVars.isPrefixOf mutVars)
  (halign : args.submapVars vars)
- (halignMut : mutArgs.submapVars mutVars)
- (halignkMut : kmutArgs.submapVars kmutVars)
+ (halignMut : mutArgs.equivVars mutVars)
+ (halignkMut : kmutArgs.equivVars kmutVars)
  (prog : SSADo)
  (hkBreak : kbreak.All kmutArgs.validContinutation)
+ (hkContinue : kcontinue.All kmutArgs.validContinutation)
  (hnkBreak : nkbreak.All (prog.validContinutationRef vars mutVars kmutVars))
  (hnkContinue : nkcontinue.All (prog.validContinutationRef vars mutVars kmutVars)) :
     ∀ x, prog.eval args mutArgs kmutArgs kbreak kcontinue = some x →
-        x = (prog.toSSAExpr! vars mutVars kMutVars nkbreak nkcontinue).eval args := sorry
+        x = (prog.toSSAExpr! vars mutVars kmutVars nkbreak nkcontinue).eval args := sorry
 /-
      IR.eval
    IR ----> Const

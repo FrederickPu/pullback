@@ -142,3 +142,5 @@ theorem SSAExpr.inferType!_eq_of_vars_equiv {vars₁ vars₂ : VarMap} (hvars : 
     expr.inferType! vars₁ = expr.inferType! vars₂ := sorry
 
 def ArgMap.submapVars (args : ArgMap) (vars : VarMap) : Prop := Map.submap (args.map (fun (name, x) => (name, x.inferType))) vars
+
+def ArgMap.equivVars (args : ArgMap) (vars : VarMap) : Prop := Map.equiv (args.map (fun (name, x) => (name, x.inferType))) vars
