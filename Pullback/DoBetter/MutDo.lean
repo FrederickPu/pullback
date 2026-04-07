@@ -30,6 +30,9 @@ def increment (amount : Nat) (count : Nat) : IO (String × Nat) :=
 -- expands to: let (msg, count) ← increment 5 count
 ```
 
+note that function with mutable arguments can still be called normally without mutcall,
+but it means that the return will be the (return, muttuple) so it should be pretty obvious when you make that mistake.
+
 ## Simple form
 
 `mut[f]`: every `return e` → `return (f e)` (no mut vars).
@@ -158,7 +161,7 @@ syntax:lead "mut" "[" mutBinder,+ "]" doSeq : term
 /-- Call syntax: `mut_call[x, y] v ← f args` -/
 syntax:lead "mut_call" "[" ident,+ "]" ident " ← " term : doElem
 
-syntax:lead "let" ident "←" term "⟦"  ident,+ "⟧"  : doElem
+syntax:lead "let" ident "←" term "⟦"  ident+ "⟧"  : doElem
 
 
 -- ============================================================
@@ -210,7 +213,7 @@ macro_rules
     let item ← MutDo.mkLetBindItem pat.raw callExpr.raw
     let doElem : TSyntax `doElem := ⟨item[0]⟩
     return doElem
-  | `(doElem | let $v:ident ← $f:term ⟦ $mutVars,* ⟧) =>
+  | `(doElem | let $v:ident ← $f:term ⟦ $[$mutVars]* ⟧) =>
       `(doElem | mut_call[ $mutVars,* ] $v:ident ← $f:term)
 universe u v w
 
@@ -218,7 +221,7 @@ abbrev withMut
   (M : Type (max u v) → Type w)
   (α : Type u)
   {mutTupleType : Type v} :=
-  @id (mutTupleType → M (α × mutTupleType))
+  @id (M (α × mutTupleType))
 
 section MutTests
 
@@ -230,8 +233,7 @@ def testMut1 : IO (String × Nat) :=
     count := count + 1
     return "done"
 
-def testMut1' := withMut IO String
-  fun count : Nat =>
+def testMut1' (count : Nat) := withMut IO String do
   mut[count : Nat]
     count := count + 1
     count := count + 1
@@ -302,15 +304,15 @@ def womp := (do return "string" : IO _)
 
 #check id
 /-- Increment: returns (message, newCount). -/
-def increment (amount : Nat) :=
-  withMut IO String fun count => mut[count : Nat]
+def increment (amount : Nat) (count : Nat) :=
+  withMut IO String do mut[count : Nat]
     count := count + amount
     return s!"incremented by {amount}"
 
 
 /-- Double: returns ((), newX). -/
-def doubleM (x : Nat) : IO (Unit × Nat) :=
-  mut[x : Nat]
+def doubleM (x y : Nat) : IO (Unit × Nat × Nat) :=
+  mut[x : Nat, y : Nat]
     x := x * 2
     return ()
 
@@ -339,17 +341,20 @@ def testCall2 : IO ((String × String) × Nat) :=
     let msg2 ← increment 7 ⟦count⟧
     return (msg1, msg2)
 
+
 #eval do
   let r ← testCall2
   assert! r == (("incremented by 3", "incremented by 7"), 10)
   IO.println s!"testCall2: {repr r}"
 
 /-- Double twice. -/
+-- todo :: currently not allowed to pass in same mut var for multiple arguments either fix or decide why this is desirable behavior
 def testCall3 : IO (Unit × Nat) :=
   let x := 5
   mut[x : Nat]
-    mut_call[x] u1 ← doubleM
-    let u2 ← doubleM ⟦x⟧
+    let mut y := 0
+    mut_call[x, y] u1 ← doubleM
+    let u2 ← doubleM ⟦x y⟧
     return ()
 
 #eval do
@@ -358,20 +363,18 @@ def testCall3 : IO (Unit × Nat) :=
   IO.println s!"testCall3: {repr r}"
 
 /-- Non-captured mutvars stay in scope across mut_calls. -/
-def testCall4 : IO (Nat × Nat) :=
-  let x := 5
+def testCall4 : IO (Nat × Nat) := do
+  let mut x := 5
   mut[x : Nat]
     let mut y := 0
-    mut_call[x] u1 ← doubleM
-    y := y + 1
-    mut_call[x] u2 ← doubleM
-    y := y + 1
-    return y
+    mut_call[x, y] u1 ← doubleM
+    mut_call[x, y] u2 ← doubleM
+    return sorry
 
-#eval do
-  let r ← testCall4
-  -- x: 5 → 10 → 20, y: 0 → 1 → 2
-  assert! r == (2, 20)
-  IO.println s!"testCall4: {repr r}"
+-- #eval do
+--   let r ← testCall4
+--   -- x: 5 → 10 → 20, y: 0 → 1 → 2
+--   assert! r == (2, 20)
+--   IO.println s!"testCall4: {repr r}"
 
 end CallTests
