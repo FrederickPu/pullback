@@ -1,12 +1,13 @@
 import Lean
+import Qq
 open Lean
 
 /-!
-# `mut_do` — do-notation with mutable variables (non-CPS)
+# `do mut` — do-notation with mutable variables (non-CPS)
 
 ## Return convention
 
-`return e` inside `mut_do[x : T, y : U]` becomes `return (e, x, y)`.
+`return e` inside `mut[x : T, y : U]` becomes `return (e, x, y)`.
 
 Since Lean tuples are right-associated, `(e, x, y)` = `(e, (x, y))`,
 so the return type is naturally `RetVal × (T × U)` — the return value
@@ -16,7 +17,7 @@ first, then the mutable state as a single tuple.
 
 ```lean
 def increment (amount : Nat) (count : Nat) : IO (String × Nat) :=
-  mut_do[count : Nat]
+  mut[count : Nat]
     count := count + amount
     return s!"incremented by {amount}"
 -- returns (message, updatedCount)
@@ -31,7 +32,8 @@ def increment (amount : Nat) (count : Nat) : IO (String × Nat) :=
 
 ## Simple form
 
-`mut_do[f]`: every `return e` → `return (f e)` (no mut vars).
+`mut[f]`: every `return e` → `return (f e)` (no mut vars).
+`do mut[f] ...` and `mut[f] ...` are the same ie we compose nicely with do notation
 -/
 
 namespace MutDo
@@ -150,29 +152,22 @@ end MutDo
 
 syntax mutBinder := ident " : " term
 
-/-- Full form: `mut_do[x : T, y : U] body` -/
-syntax "mut_do" "[" mutBinder,+ "]" doSeq : term
-
-/-- Simple form: `mut_do[f] body` -/
-syntax "mut_do" "[" term "]" doSeq : term
+/-- Full form: `mut[x : T, y : U] body` -/
+syntax:lead "mut" "[" mutBinder,+ "]" doSeq : term
 
 /-- Call syntax: `mut_call[x, y] v ← f args` -/
-syntax "mut_call" "[" ident,+ "]" ident " ← " term : doElem
+syntax:lead "mut_call" "[" ident,+ "]" ident " ← " term : doElem
+
+syntax:lead "let" ident "←" term "⟦"  ident,+ "⟧"  : doElem
+
 
 -- ============================================================
 -- Macro rules
 -- ============================================================
 
-/-- Simple form -/
-macro_rules
-  | `(mut_do[ $f:term ] $seq) => do
-    let seq' ← MutDo.rewriteReturns f (seq : Syntax)
-    let tsSeq : TSyntax `Lean.Parser.Term.doSeq := ⟨seq'⟩
-    `(do $tsSeq)
-
 /-- Full form: introduces `let mut` binders, rewrites `return e` → `return (e, x, y, ...)` -/
 macro_rules
-  | `(mut_do[ $binders,* ] $seq) => do
+  | `(mut[ $binders,* ] $seq) => do
     let binders := binders.getElems
     let mut varNames : Array (TSyntax `ident) := #[]
     let mut varTypes : Array (TSyntax `term) := #[]
@@ -191,6 +186,9 @@ macro_rules
     let allItems := letMutItems ++ bodyItems
     let newSeq : TSyntax `Lean.Parser.Term.doSeq := ⟨MutDo.mkDoSeqIndent seq' allItems⟩
     `(do $newSeq)
+
+open Lean Parser Meta Elab Term Command
+
 
 /-- `mut_call[x, y] v ← f args` expands to:
     `let (v, x, y) ← f args x y`
@@ -212,49 +210,29 @@ macro_rules
     let item ← MutDo.mkLetBindItem pat.raw callExpr.raw
     let doElem : TSyntax `doElem := ⟨item[0]⟩
     return doElem
+  | `(doElem | let $v:ident ← $f:term ⟦ $mutVars,* ⟧) =>
+      `(doElem | mut_call[ $mutVars,* ] $v:ident ← $f:term)
+universe u v w
 
--- ============================================================
--- Tests: simple form
--- ============================================================
-
-section SimpleTests
-
-def testSimple1 : IO (Option Nat) :=
-  mut_do[Option.some]
-    let x ← pure 42
-    if x > 10 then
-      return x
-    return 0
-
-#eval do
-  let r ← testSimple1
-  assert! r == some 42
-  IO.println s!"testSimple1: {repr r}"
-
-def double (n : Nat) : Nat := n * 2
-
-def testSimple2 : IO Nat :=
-  mut_do[double]
-    let x ← pure 21
-    return x
-
-#eval do
-  let r ← testSimple2
-  assert! r == 42
-  IO.println s!"testSimple2: {repr r}"
-
-end SimpleTests
-
--- ============================================================
--- Tests: full form
--- ============================================================
+abbrev withMut
+  (M : Type (max u v) → Type w)
+  (α : Type u)
+  {mutTupleType : Type v} :=
+  @id (mutTupleType → M (α × mutTupleType))
 
 section MutTests
 
 /-- Single mut var. Returns (retval, count). -/
 def testMut1 : IO (String × Nat) :=
   let count := 0
-  mut_do[count : Nat]
+  mut[count : Nat]
+    count := count + 1
+    count := count + 1
+    return "done"
+
+def testMut1' := withMut IO String
+  fun count : Nat =>
+  mut[count : Nat]
     count := count + 1
     count := count + 1
     return "done"
@@ -268,7 +246,7 @@ def testMut1 : IO (String × Nat) :=
 def testMut2 : IO (String × Nat × Nat) :=
   let x := 1
   let y := 2
-  mut_do[x : Nat, y : Nat]
+  mut[x : Nat, y : Nat]
     x := x + 10
     y := y + 20
     return "hello"
@@ -281,7 +259,7 @@ def testMut2 : IO (String × Nat × Nat) :=
 /-- Early return from a loop. -/
 def testMut3 (threshold : Nat) : IO (Bool × Nat) :=
   let acc := 0
-  mut_do[acc : Nat]
+  mut[acc : Nat]
     for i in [0:5] do
       acc := acc + i
       if acc > threshold then
@@ -297,11 +275,11 @@ def testMut3 (threshold : Nat) : IO (Bool × Nat) :=
   IO.println s!"testMut3 (early): {repr r2}"
 
 /-- Three mut vars. -/
-def testMut4 : IO (Unit × Nat × String × Bool) :=
+def testMut4 := @id (IO (Unit × _)) do
   let a := 0
   let b := "hello"
   let c := false
-  mut_do[a : Nat, b : String, c : Bool]
+  mut[a : Nat, b : String, c : Bool]
     a := a + 42
     b := b ++ " world"
     c := !c
@@ -320,15 +298,19 @@ end MutTests
 
 section CallTests
 
+def womp := (do return "string" : IO _)
+
+#check id
 /-- Increment: returns (message, newCount). -/
-def increment (amount : Nat) (count : Nat) : IO (String × Nat) :=
-  mut_do[count : Nat]
+def increment (amount : Nat) :=
+  withMut IO String fun count => mut[count : Nat]
     count := count + amount
     return s!"incremented by {amount}"
 
+
 /-- Double: returns ((), newX). -/
 def doubleM (x : Nat) : IO (Unit × Nat) :=
-  mut_do[x : Nat]
+  mut[x : Nat]
     x := x * 2
     return ()
 
@@ -340,7 +322,7 @@ def doubleM (x : Nat) : IO (Unit × Nat) :=
 /-- Single mut_call. -/
 def testCall1 : IO (String × Nat) :=
   let count := 0
-  mut_do[count : Nat]
+  mut[count : Nat]
     mut_call[count] msg ← increment 5
     return msg
 
@@ -352,9 +334,9 @@ def testCall1 : IO (String × Nat) :=
 /-- Chained mut_calls. -/
 def testCall2 : IO ((String × String) × Nat) :=
   let count := 0
-  mut_do[count : Nat]
+  mut[count : Nat]
     mut_call[count] msg1 ← increment 3
-    mut_call[count] msg2 ← increment 7
+    let msg2 ← increment 7 ⟦count⟧
     return (msg1, msg2)
 
 #eval do
@@ -365,9 +347,9 @@ def testCall2 : IO ((String × String) × Nat) :=
 /-- Double twice. -/
 def testCall3 : IO (Unit × Nat) :=
   let x := 5
-  mut_do[x : Nat]
+  mut[x : Nat]
     mut_call[x] u1 ← doubleM
-    mut_call[x] u2 ← doubleM
+    let u2 ← doubleM ⟦x⟧
     return ()
 
 #eval do
@@ -378,7 +360,7 @@ def testCall3 : IO (Unit × Nat) :=
 /-- Non-captured mutvars stay in scope across mut_calls. -/
 def testCall4 : IO (Nat × Nat) :=
   let x := 5
-  mut_do[x : Nat]
+  mut[x : Nat]
     let mut y := 0
     mut_call[x] u1 ← doubleM
     y := y + 1
