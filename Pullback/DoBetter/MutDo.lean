@@ -69,17 +69,17 @@ def resolveAccessor (expr : Syntax) (mutVars : NameSet) (inlineMap : NameMap Syn
     if inlined.isIdent && inlined.getId == mutName then
       return (mutName, ← `(id))
     else
-      let freshVar := mkIdent `_mutAccessorVar
-      let body := replaceIdent inlined mutName freshVar
-      let bodyTerm : TSyntax `term := ⟨body⟩
-      let freshId : TSyntax `ident := freshVar
-      -- Annotate with type if known
+      -- Since mut vars can't be shadowed, we can use the mut var's
+      -- own name as the lambda parameter. The inlined expression
+      -- already contains the mut var name, so the lambda just binds it.
+      let mutId : TSyntax `ident := mkIdent mutName
+      let bodyTerm : TSyntax `term := ⟨inlined⟩
       match mutVarTypes.find? mutName with
       | some tyStx =>
         let ty : TSyntax `term := ⟨tyStx⟩
-        return (mutName, ← `(fun ($freshId : $ty) => $bodyTerm))
+        return (mutName, ← `(fun ($mutId : $ty) => $bodyTerm))
       | none =>
-        return (mutName, ← `(fun $freshId => $bodyTerm))
+        return (mutName, ← `(fun $mutId => $bodyTerm))
   | none =>
     Macro.throwError s!"mut_call: no mutable variable found in expression after inlining"
 
