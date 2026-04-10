@@ -178,3 +178,59 @@ inductive Ty
     ⟨(⟨_, -[.pi Ty.nat Ty.prop, .pi Ty.nat Ty.prop, .app (.type Ty.signature) (.var 0), .app (.type Ty.nat) (.app (.type Ty.signature) (.var 1))]⟩ : DContext Ty), DTerm.type Ty.signature⟩ -- bind `{p q : nat -> prop} (n : signature p) (f : nat -> signature q) |- signature q `
   ]
 : List ((Γ : DContext Ty) × DTerm Ty Γ.1))
+
+#check Ty.signature
+
+def Ty.interp : Ty → Type
+| .nat => Nat
+| .prop => Prop
+| .signature => Empty
+
+/--
+  Helper to interpret a DTerm given a vector of already-interpreted types.
+  This looks up variables in the environment and interprets type constructors.
+-/
+def DTerm.interpretDTerm :
+    {n : Nat} → Vector (Nat ⊕ (Nat → Prop)) n → DTerm Ty n → Type
+  | n, env, .type t => Ty.interp t
+  | n, env, .app (.type Ty.signature) (.var i) =>
+      match env.get i with
+      | Sum.inl x => Empty
+      | Sum.inr p => Subtype p
+  | n, env, .pi T₁ T₂ =>
+      Ty.interp T₁ → Ty.interp T₂
+  | _, _, _ => Empty
+
+
+
+/--
+  `withContext interpTy Γ k` takes:
+  - `interpTy`: interpretation of base types `Ty → Type`
+  - `Γ`: a dependent context
+  - `k`: a continuation expecting a vector of interpreted types
+
+  It builds nested function types where each argument corresponds to
+  an element of the context, interpreted according to `interpTy` and
+  the types that came before it.
+
+  Example: If Γ = [Nat, Bool, eq 0 1], this produces:
+    Nat → (Bool → (eq 0 1 → k [Nat, Bool, eq 0 1]))
+-/
+def withContext (interpTy : Ty → Type) :
+    (Γ : DContext Ty) → (k : Vector Type Γ.1 → Type) → Type :=
+  fun Γ k =>
+    let rec go : {n : Nat} → (v : DVec (DTerm Ty) n) → Vector Type n → Type
+      | 0, .nil, env => k env
+      | n+1, .push tail head, env =>
+          let headTy := interpretDTerm Ty interpTy env head
+          headTy → go tail (env.snoc headTy)
+    go Γ.2 Vector.nil
+
+
+def Ty.interpret : (Γ : DContext Ty) → (t : DTerm Ty Γ.1) → Type
+| _, .type nat => Nat
+| _, .type prop => Prop
+| _, .type signature => Empty -- unreachible
+| ⟨_, -[.type nat]⟩, .app (.type signature) (.var p) => Nat → Prop
+| ⟨_, DVec.push xs x⟩, _ => Empty
+| _, _ => sorry
