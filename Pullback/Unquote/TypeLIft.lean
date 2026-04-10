@@ -40,8 +40,7 @@ instance [TypeLift.{u, t} A A'] [TypeLift.{v, t} B B']
     : TypeLift.{max u v, t} (A × B) (A' × B') where
   up   p := (TypeLift.up p.1, TypeLift.up p.2)
   down p := (TypeLift.down p.1, TypeLift.down p.2)
-  roundtrip p := by
-    simp only [TypeLift.roundtrip]
+  roundtrip p := by simp only [TypeLift.roundtrip]
 
 /-- Sum lifts componentwise. -/
 instance [TypeLift.{u, t} A A'] [TypeLift.{v, t} B B']
@@ -75,26 +74,25 @@ instance [TypeLift.{u, t} A A'] : TypeLift.{u, t} (List A) (List A') where
   roundtrip xs := by
     simp only [List.map_map, Function.comp_def, TypeLift.roundtrip, List.map_id']
 
+/-- Function types: lift domain contravariantly, codomain covariantly.
+    We avoid putting universe constraints on the instance head to
+    sidestep `imax` unification issues. Instead we constrain the
+    components and let Lean compute the function type's universe. -/
+instance typeLiftFun [TypeLift.{u, t} A A'] [TypeLift.{v, t} B B']
+    : TypeLift (A → B) (A' → B') where
+  up   f := fun a' => TypeLift.up (f (TypeLift.down a'))
+  down f := fun a  => TypeLift.down (f (TypeLift.up a))
+  roundtrip f := by funext a; simp [TypeLift.roundtrip]
+
 /-! ## Ergonomic API -/
 
-/-- Lift a value into a higher universe. Typeclass resolution
-    figures out the wrapping automatically. -/
+/-- Lift a value into a higher universe. -/
 def typeLift [TypeLift.{u, w} A B] (a : A) : B :=
   TypeLift.up a
 
 /-- Unlift a value back to its original universe. -/
 def typeUnlift [TypeLift.{u, w} A B] (b : B) : A :=
   TypeLift.down b
-
-/-- Lift a unary function. -/
-def typeLiftFn [TypeLift.{u, t} A A'] [TypeLift.{v, t} B B']
-    (f : A → B) : A' → B' :=
-  fun a' => TypeLift.up (f (TypeLift.down a'))
-
-/-- Lift a binary function. -/
-def typeLiftFn₂ [TypeLift.{u, t} A A'] [TypeLift.{v, t} B B'] [TypeLift.{w, t} C C']
-    (f : A → B → C) : A' → B' → C' :=
-  fun a' b' => TypeLift.up (f (TypeLift.down a') (TypeLift.down b'))
 
 /-! ## Context: a list of types at a given universe -/
 
@@ -109,11 +107,11 @@ def cons.{uu} (A : Type uu) (ctx : Ctx.{uu}) : Ctx.{uu} := A :: ctx
 
 /-- Lift each type in a context to a higher universe. -/
 def lift (ctx : Ctx.{u}) : Ctx.{max u v} :=
-  (ctx : List _).map (ULift.{max u v, u} ·)
+  List.map (ULift.{max u v, u} ·) ctx
 
 /-- Append two contexts, lifting both to a common universe. -/
 def append (ctx₁ : Ctx.{u}) (ctx₂ : Ctx.{v}) : Ctx.{max u v} :=
-  List.append (ctx₁.lift : List _) (ctx₂.lift : List _)
+  List.append (ctx₁.lift) (ctx₂.lift)
 
 end Ctx
 
@@ -130,7 +128,15 @@ example : ULift.{1} Nat × ULift.{1} Bool :=
 
 -- Lift a function Nat → Bool, now works on lifted types
 def isEven' : ULift.{1} Nat → ULift.{1} Bool :=
-  typeLiftFn (fun n => n % 2 == 0)
+  typeLift (fun n => n % 2 == 0 : Nat → Bool)
+
+-- N-ary: binary function lifted automatically via currying
+def add' : ULift.{1} Nat → ULift.{1} Nat → ULift.{1} Nat :=
+  typeLift (fun a b => a + b : Nat → Nat → Nat)
+
+-- N-ary: ternary
+def add3' : ULift.{1} Nat → ULift.{1} Nat → ULift.{1} Nat → ULift.{1} Nat :=
+  typeLift (fun a b c => a + b + c : Nat → Nat → Nat → Nat)
 
 -- Round-trip: lift then unlift = id
 example (n : Nat) : typeUnlift (typeLift (B := ULift.{1} Nat) n) = n := rfl
