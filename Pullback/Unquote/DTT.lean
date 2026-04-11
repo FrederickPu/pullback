@@ -122,45 +122,71 @@ structure TypedVal where
 instance : Inhabited (TypedVal) := ⟨⟨.ret PUnit, PUnit.unit⟩⟩
 
 def Ctx := Array (Name × TypedVal.{uu})
-
 namespace Ctx
 def empty : Ctx.{uu} := #[]
 def push (ctx : Ctx.{uu}) (name : Name) (e : TypedVal.{uu}) : Ctx.{uu} :=
   Array.push ctx (name, e)
 def get (ctx : Ctx.{uu}) (name : Name) : Option (TypedVal.{uu}) :=
   (ctx.reverse.find? (·.1 == name)).map (·.2)
+end Ctx
 
+def TypeWhnf.Aligned (vars : Map Name PExpr) (ctx : Ctx.{uu}) : TypeWhnf.{uu} → PExpr → Prop
+  | .ret _, .sort => True
+  | w, .var name =>
+      ∃ tv, Ctx.get ctx name = some tv ∧ w = tv.whnf
+  | .ext dom rest, .forallE name binderType body =>
+      binderType.inferType vars = some .sort ∧
+      (body.inferType (vars.push (name, binderType))).isSome ∧
+      ∀ v : dom, TypeWhnf.Aligned (vars.push (name, binderType))
+        (Ctx.push ctx name ⟨TypeWhnf.ret dom, v⟩) (rest v) body
+  | _, _ => False
+
+namespace Ctx
 def aligned (vars : Map Name PExpr) (ctx : Ctx.{uu}) : Prop :=
-  ∀ name, (vars.get name).isSome → (ctx.get name).isSome
+  ∀ name ty, vars.get name = some ty →
+    ∃ tv, ctx.get name = some tv ∧ TypeWhnf.Aligned vars ctx tv.whnf ty
 
 theorem aligned_push (vars : Map Name PExpr) (ctx : Ctx.{uu})
     (h : aligned vars ctx) (name : Name) (binderType : PExpr) (tv : TypedVal.{uu}) :
     aligned (vars.push (name, binderType)) (ctx.push name tv) := by
   sorry
+
 end Ctx
 
-def TypeWhnf.Aligned (vars : Map Name PExpr) (ctx : Ctx.{uu}) : TypeWhnf.{uu} → PExpr → Prop
-  | .ret _, .sort => Ctx.aligned vars ctx
-  | w, .var name =>
-      ∃ tv, ctx.get name = some tv ∧ w = tv.whnf
-  | .ext dom rest, .forallE name binderType body =>
-      Ctx.aligned vars ctx ∧
-      binderType.inferType vars = some .sort ∧
-      (body.inferType (vars.push (name, binderType))).isSome ∧
-      ∀ v : dom, TypeWhnf.Aligned (vars.push (name, binderType))
-        (ctx.push name ⟨TypeWhnf.ret dom, v⟩) (rest v) body
-  | _, _ => False
+
+def TypeWhnf.AlignedViaType (vars : Map Name PExpr) (ctx : Ctx.{uu}) (w : TypeWhnf.{uu}) (e : PExpr) : Prop :=
+  TypeWhnf.Aligned vars ctx w e
 
 theorem TypeWhnf.aligned_var_iff {vars : Map Name PExpr} {ctx : Ctx.{uu}} {name : Name} {w : TypeWhnf.{uu}} :
     TypeWhnf.Aligned vars ctx w (PExpr.var name) ↔ ∃ tv, ctx.get name = some tv ∧ w = tv.whnf := by
   simp [TypeWhnf.Aligned]
 
+-- When a whnf aligns with a forallE via the type it infers to, we can relate it back
+theorem TypeWhnf.aligned_forallE_of_aligned_type {vars : Map Name PExpr} {ctx : Ctx.{uu}}
+    {name : Name} {binderType body : PExpr}
+    {dom : Type uu} {rest : dom → TypeWhnf.{uu}}
+    (hBinder : binderType.inferType vars = some .sort)
+    (hBody : (body.inferType (vars.push (name, binderType))).isSome)
+    (hRest : ∀ v : dom, TypeWhnf.Aligned (vars.push (name, binderType))
+      (ctx.push name ⟨TypeWhnf.ret dom, v⟩) (rest v) body) :
+    TypeWhnf.Aligned vars ctx (TypeWhnf.ext dom rest) (PExpr.forallE name binderType body) :=
+  ⟨hBinder, hBody, hRest⟩
+
 def TypedVal.Aligned (vars : Map Name PExpr) (ctx : Ctx.{uu}) (tv : TypedVal.{uu}) (e : PExpr) : Prop :=
   ∃ ty : PExpr, e.inferType vars = some ty ∧ TypeWhnf.Aligned vars ctx tv.whnf ty
 
-def Ctx.alignedTy (vars : Map Name PExpr) (ctx : Ctx.{uu}) : Prop :=
-  ∀ name ty, vars.get name = some ty →
-    ∃ tv, ctx.get name = some tv ∧ TypeWhnf.Aligned vars ctx tv.whnf ty
+lemma Ctx.aligned_get {vars : Map Name PExpr} {ctx : Ctx.{uu}}
+    (h : Ctx.aligned vars ctx) {name : Name} {ty : PExpr}
+    (hty : vars.get name = some ty) :
+    ∃ tv, ctx.get name = some tv ∧ TypeWhnf.Aligned vars ctx tv.whnf ty :=
+  h name ty hty
+
+lemma Ctx.aligned_push_of_aligned_and_aligned_whnf (vars : Map Name PExpr) (ctx : Ctx.{uu})
+    (name : Name) (binderType : PExpr) (tv : TypedVal.{uu})
+    (h : Ctx.aligned vars ctx)
+    (hTy : TypeWhnf.Aligned vars ctx tv.whnf binderType) :
+    Ctx.aligned (vars.push (name, binderType)) (ctx.push name tv) := by
+  sorry
 
 theorem PExpr.inferType_forallE_eq_sort_or_none (vars : Map Name PExpr) (name : Name) (binderType bodyType : PExpr) :
   (forallE name binderType bodyType).inferType vars = some .sort ∨ (forallE name binderType bodyType).inferType vars = none := sorry
@@ -229,8 +255,9 @@ def aligned {vars : Map Name PExpr} {ctx : Ctx.{uu}} {e : PExpr}
 
 -- Constructors matching TypeWhnf.Aligned patterns
 def ofSort {vars : Map Name PExpr} {ctx : Ctx.{uu}}
-    (halign : Ctx.aligned vars ctx) : TypeWhnfAligned vars ctx .sort :=
-  ⟨TypeWhnf.ret PUnit, halign⟩
+    (_halign : Ctx.aligned vars ctx) : TypeWhnfAligned vars ctx .sort :=
+  { val := TypeWhnf.ret PUnit
+    property := trivial }
 
 def ofVar {vars : Map Name PExpr} {ctx : Ctx.{uu}} {name : Name}
     (tv : TypedVal.{uu})
@@ -240,14 +267,15 @@ def ofVar {vars : Map Name PExpr} {ctx : Ctx.{uu}} {name : Name}
 
 def ofForallE {vars : Map Name PExpr} {ctx : Ctx.{uu}}
     {name : Name} {binderType body : PExpr}
-    {dom : Type uu} (rest : dom → TypeWhnf.{uu})
-    (halign : Ctx.aligned vars ctx)
+    {dom : Type uu} (restFn : dom → TypeWhnf.{uu})
+  (_halign : Ctx.aligned vars ctx)
     (hBinder : binderType.inferType vars = some .sort)
     (hBody : (body.inferType (vars.push (name, binderType))).isSome)
-    (hRest : ∀ v : dom, TypeWhnf.Aligned (vars.push (name, binderType))
-      (ctx.push name ⟨TypeWhnf.ret dom, v⟩) (rest v) body) :
+    (hRestAligned : ∀ v : dom, TypeWhnf.Aligned (vars.push (name, binderType))
+      (ctx.push name ⟨TypeWhnf.ret dom, v⟩) (restFn v) body) :
     TypeWhnfAligned vars ctx (.forallE name binderType body) :=
-  ⟨TypeWhnf.ext dom rest, ⟨halign, hBinder, hBody, hRest⟩⟩
+  { val := TypeWhnf.ext dom restFn
+    property := ⟨hBinder, hBody, hRestAligned⟩ }
 
 @[simp] theorem whnf_ofSort {vars : Map Name PExpr} {ctx : Ctx.{uu}}
     (halign : Ctx.aligned vars ctx) :
@@ -303,16 +331,20 @@ def val {vars : Map Name PExpr} {ctx : Ctx.{uu}} {e : PExpr}
     (tv : TypedVal.{uu}) (h : TypedVal.Aligned vars ctx tv e) :
     (mk tv h).val = tv.val := rfl
 
--- Constructor for variable lookup in value mode
-def ofVar_val {vars : Map Name PExpr} {ctx : Ctx.{uu}} {name : Name}
-    (x : TypedVal.{uu})
-    (_hctx : ctx.get name = some x)
-    (ty : PExpr)
-    (htype : vars.get name = some ty)
-    (halign : TypeWhnf.Aligned vars ctx x.whnf ty) :
-    TypedValAligned vars ctx (.var name) :=
-  { val := x
-    property := ⟨ty, htype, halign⟩ }
+
+-- Constructor for lambda
+def ofLam {vars : Map Name PExpr} {ctx : Ctx.{uu}}
+    {name : Name} {binderType body : PExpr}
+    {dom : Type uu} (bodyWhnf : dom → TypeWhnf.{uu}) (bodyVal : (v : dom) → (bodyWhnf v).toType)
+    (hBinder : binderType.inferType vars = some .sort)
+    (hBodyWhnf : ∀ v, TypeWhnf.Aligned (vars.push (name, binderType))
+      (ctx.push name ⟨TypeWhnf.ret dom, v⟩) (bodyWhnf v) body)
+    (hBodyTy : (body.inferType (vars.push (name, binderType))).isSome) :
+    TypedValAligned vars ctx (.lam name binderType body) :=
+  let ty := PExpr.forallE name binderType body
+  let whnf := TypeWhnf.ext dom bodyWhnf
+  let val : whnf.toType := fun v => bodyVal v
+  ⟨⟨whnf, val⟩, ⟨ty, by sorry, by sorry⟩⟩
 
 end TypedValAligned
 
@@ -328,7 +360,7 @@ isType flag determines which branch.
 def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
   (ctx : Ctx.{uu}) (halign : Ctx.aligned vars ctx)
     : (e : PExpr) →
-      (if isType then e.inferType vars = some .sort else (e.inferType vars).isSome ∧ (e.inferType vars) ≠ some .sort) →
+       (if isType then e.inferType vars = some .sort else (e.inferType vars).isSome ∧ (e.inferType vars) ≠ some .sort) →
       (if isType then TypeWhnfAligned vars ctx e else TypedValAligned vars ctx e)
   | .sort, he =>
     match isType with
@@ -343,23 +375,42 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
       match h : ctx.get name with
       | some x =>
         ⟨x.whnf, TypeWhnf.aligned_var_iff.mpr ⟨x, h, rfl⟩⟩
-      | none => by {
-        have hctx : (ctx.get name).isSome := halign name (by grind [inferType])
-        simp [h] at hctx
-      }
+      | none => by
+        have hty : vars.get name = some .sort := by
+          simpa [PExpr.inferType] using he
+        have hfalse : False := by
+          match halign name .sort hty with
+          | ⟨tv, hget, _⟩ =>
+            simp [h] at hget
+        exact False.elim hfalse
     | false =>
       match h : ctx.get name with
       | some x =>
         match htype : vars.get name with
         | some ty =>
-          TypedValAligned.ofVar_val x h ty htype (by sorry)
+          ⟨x, ⟨ty, htype, by
+            have hctx : ∃ tv, ctx.get name = some tv ∧ TypeWhnf.Aligned vars ctx tv.whnf ty :=
+              halign name ty htype
+            cases hctx with
+            | intro tv hrest =>
+              cases hrest with
+              | intro hget h_align =>
+                have hxtv : x = tv := by simpa [h] using hget
+                simpa [hxtv] using h_align
+          ⟩⟩
         | none => by
           have : (vars.get name).isSome := by simpa using he.1
           simp [htype] at this
-      | none => by {
-        have hctx : (ctx.get name).isSome := halign name (by simpa using he.1)
-        simp [h] at hctx
-      }
+      | none => by
+        have hfalse : False := by
+          cases hty : vars.get name with
+          | none =>
+            simp [PExpr.inferType, hty] at he
+          | some ty =>
+            match halign name ty hty with
+            | ⟨tv, hget, _⟩ =>
+              simp [h] at hget
+        exact False.elim hfalse
   | .forallE name binderType body, he =>
     match isType with
     | true =>
@@ -378,14 +429,23 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
       let domWhnf := (PExpr.interp true vars ctx halign binderType (by
         simp [hBinder])).1
       let dom := domWhnf.toType
-      ⟨TypeWhnf.ext dom (fun v =>
+      TypeWhnfAligned.ofForallE
+        (fun v =>
           let vars' := vars.push (name, binderType)
           let ctx' := ctx.push name ⟨TypeWhnf.ret dom, v⟩
           (PExpr.interp true vars' ctx'
             (Ctx.aligned_push vars ctx halign name binderType ⟨TypeWhnf.ret dom, v⟩)
             body
-            hBody).1), by
-        sorry⟩
+            hBody).1)
+        halign hBinder (by simp [hBody])
+        (fun v =>
+          let vars' := vars.push (name, binderType)
+          let ctx' := ctx.push name ⟨TypeWhnf.ret dom, v⟩
+          let bodyResult := PExpr.interp true vars' ctx'
+            (Ctx.aligned_push vars ctx halign name binderType ⟨TypeWhnf.ret dom, v⟩)
+            body
+            hBody
+          bodyResult.aligned)
     | false => by
       apply False.elim
       simp [inferType] at he
@@ -427,22 +487,24 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
       let domWhnf := (PExpr.interp true vars ctx halign binderType (by
         simp [hBinder])).1
       let dom := domWhnf.toType
-      let whnf := TypeWhnf.ext dom (fun v =>
+      TypedValAligned.ofLam
+        (fun v =>
           let ctx' := ctx.push name ⟨TypeWhnf.ret dom, v⟩
           let bodyTv := (PExpr.interp false vars' ctx'
             (Ctx.aligned_push vars ctx halign name binderType ⟨TypeWhnf.ret dom, v⟩)
             body
             hBody).1
           bodyTv.whnf)
-        let val : whnf.toType := fun v =>
+        (fun v =>
           let ctx' := ctx.push name ⟨TypeWhnf.ret dom, v⟩
           let bodyTv := (PExpr.interp false vars' ctx'
             (Ctx.aligned_push vars ctx halign name binderType ⟨TypeWhnf.ret dom, v⟩)
             body
             hBody).1
-          bodyTv.val
-        ⟨⟨whnf, val⟩, by
-          sorry⟩
+          bodyTv.val)
+        hBinder
+        (fun v => by sorry)
+        hBody.1
   | .app f x, he =>
     match isType with
     | true =>
