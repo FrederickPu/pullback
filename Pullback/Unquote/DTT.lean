@@ -29,6 +29,55 @@ partial def PExpr.betaReduce : PExpr → PExpr
   | .lam n t b => .lam n t.betaReduce b.betaReduce
   | e => e
 
+def PExpr.isWhnf : PExpr → Prop
+  | .var _ => True
+  | .sort => True
+  | .lam _ binderType body => binderType.isWhnf ∧ body.isWhnf
+  | .forallE _ binderType body => binderType.isWhnf ∧ body.isWhnf
+  | .app f x =>
+      f.isWhnf ∧ x.isWhnf ∧
+      match f with
+      | .lam _ _ _ => False
+      | _ => True
+
+theorem PExpr.isWhnf_lam_iff (name : Name) (binderType body : PExpr) :
+    (PExpr.lam name binderType body).isWhnf ↔ binderType.isWhnf ∧ body.isWhnf := by
+  rfl
+
+theorem PExpr.isWhnf_forallE_iff (name : Name) (binderType body : PExpr) :
+    (PExpr.forallE name binderType body).isWhnf ↔ binderType.isWhnf ∧ body.isWhnf := by
+  rfl
+
+theorem PExpr.isWhnf_app_iff (f x : PExpr) :
+    (PExpr.app f x).isWhnf ↔
+      f.isWhnf ∧ x.isWhnf ∧
+      (match f with
+      | .lam _ _ _ => False
+      | _ => True) := by
+  rfl
+
+theorem PExpr.isWhnf_lam_binder (name : Name) (binderType body : PExpr)
+    (h : (PExpr.lam name binderType body).isWhnf) : binderType.isWhnf :=
+  (PExpr.isWhnf_lam_iff name binderType body).1 h |>.1
+
+theorem PExpr.isWhnf_lam_body (name : Name) (binderType body : PExpr)
+    (h : (PExpr.lam name binderType body).isWhnf) : body.isWhnf :=
+  (PExpr.isWhnf_lam_iff name binderType body).1 h |>.2
+
+theorem PExpr.isWhnf_forallE_binder (name : Name) (binderType body : PExpr)
+    (h : (PExpr.forallE name binderType body).isWhnf) : binderType.isWhnf :=
+  (PExpr.isWhnf_forallE_iff name binderType body).1 h |>.1
+
+theorem PExpr.isWhnf_forallE_body (name : Name) (binderType body : PExpr)
+    (h : (PExpr.forallE name binderType body).isWhnf) : body.isWhnf :=
+  (PExpr.isWhnf_forallE_iff name binderType body).1 h |>.2
+
+theorem PExpr.isWhnf_app_fun (f x : PExpr) (h : (PExpr.app f x).isWhnf) : f.isWhnf :=
+  (PExpr.isWhnf_app_iff f x).1 h |>.1
+
+theorem PExpr.isWhnf_app_arg (f x : PExpr) (h : (PExpr.app f x).isWhnf) : x.isWhnf :=
+  (PExpr.isWhnf_app_iff f x).1 h |>.2.1
+
 def PExpr.inferType (vars : Map Name PExpr) : PExpr → Option PExpr
 | .var name => vars.get name
 | .sort => none
@@ -137,12 +186,12 @@ isType flag determines which branch.
 
 def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
   (ctx : Ctx.{uu}) (halign : Ctx.aligned vars ctx)
-    : (e : PExpr) → (if isType then e.inferType vars = some .sort else (e.inferType vars).isSome ∧ (e.inferType vars) ≠ some .sort) → (if isType then TypeWhnf.{uu} else TypedVal.{uu})
-  | .sort, he =>
+    : (e : PExpr) → e.isWhnf → (if isType then e.inferType vars = some .sort else (e.inferType vars).isSome ∧ (e.inferType vars) ≠ some .sort) → (if isType then TypeWhnf.{uu} else TypedVal.{uu})
+  | .sort, _hwhnf, he =>
     match isType with
     | true => by simp [inferType] at he
     | false => by simp [inferType] at he
-  | .var name, he =>
+  | .var name, _hwhnf, he =>
     match isType with
     | true =>
       match h : ctx.get name with
@@ -158,7 +207,7 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
         have hctx : (ctx.get name).isSome := halign name (by simpa using he.1)
         simp [h] at hctx
       }
-  | .forallE name binderType body, he =>
+  | .forallE name binderType body, hwhnf, he =>
     match isType with
     | true =>
       have heForall : (PExpr.forallE name binderType body).inferType vars = some .sort := by
@@ -174,6 +223,7 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
           cases ty <;> simp [PExpr.inferType, hBinder, hty] at heForall
           simp
       let domWhnf := PExpr.interp true vars ctx halign binderType (by
+        exact PExpr.isWhnf_forallE_binder name binderType body hwhnf) (by
         simp [hBinder])
       let dom := domWhnf.toType
       (TypeWhnf.ext dom (fun v =>
@@ -181,7 +231,10 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
           let ctx' := ctx.push name ⟨TypeWhnf.ret dom, v⟩
           (PExpr.interp true vars' ctx'
             (Ctx.aligned_push vars ctx halign name binderType ⟨TypeWhnf.ret dom, v⟩)
-            body hBody)))
+            body
+            (by
+              exact PExpr.isWhnf_forallE_body name binderType body hwhnf)
+            hBody)))
     | false => by
       apply False.elim
       simp [inferType] at he
@@ -199,7 +252,7 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
         intro H
         simp at this
       grind
-  | .lam name binderType body, he =>
+  | .lam name binderType body, hwhnf, he =>
     match isType with
     | true => by
         apply False.elim
@@ -221,82 +274,76 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
         -- todo :: use submap lemma
         sorry
       let domWhnf := PExpr.interp true vars ctx halign binderType (by
+        exact PExpr.isWhnf_lam_binder name binderType body hwhnf) (by
         simp [hBinder])
       let dom := domWhnf.toType
       let whnf := TypeWhnf.ext dom (fun v =>
           let ctx' := ctx.push name ⟨TypeWhnf.ret dom, v⟩
           let bodyTv := PExpr.interp false vars' ctx'
             (Ctx.aligned_push vars ctx halign name binderType ⟨TypeWhnf.ret dom, v⟩)
-            body hBody
+            body
+            (by
+              exact PExpr.isWhnf_lam_body name binderType body hwhnf)
+            hBody
           bodyTv.whnf)
         let val : whnf.toType := fun v =>
           let ctx' := ctx.push name ⟨TypeWhnf.ret dom, v⟩
           let bodyTv := PExpr.interp false vars' ctx'
             (Ctx.aligned_push vars ctx halign name binderType ⟨TypeWhnf.ret dom, v⟩)
-            body hBody
+            body
+            (by
+              exact PExpr.isWhnf_lam_body name binderType body hwhnf)
+            hBody
           bodyTv.val
         ⟨whnf, val⟩
-  | .app f x, he =>
-    -- Assume application heads are beta-reduced / WHNF and destructure the head expression first.
+  | .app f x, hwhnf, he =>
+    -- Atomic application path: head is a variable looked up in the aligned context.
     match f with
-    | .lam name binderType body =>
+    | .var fname =>
       match isType with
       | true =>
-        by
-          apply False.elim
-          simp at he
-          have := inferType_app_eq_sort_imp_sort vars _ x he
-          exact inferType_lam_ne_sort vars _ _ _ this
+        have hFSort : (PExpr.var fname).inferType vars = some .sort := by
+          have hAppSort : (PExpr.app (.var fname) x).inferType vars = some .sort := by
+            simpa using he
+          exact PExpr.inferType_app_eq_sort_imp_sort vars (.var fname) x hAppSort
+        have hVarGet : vars.get fname = some .sort := by
+          simpa [PExpr.inferType] using hFSort
+        have hctxSome : (ctx.get fname).isSome := by
+          apply halign fname
+          simp [hVarGet]
+        match hget : ctx.get fname with
+        | some fTv =>
+          match fTv.whnf with
+          | TypeWhnf.ext dom rest =>
+            let xTv := PExpr.interp false vars ctx halign x (by
+              exact PExpr.isWhnf_app_arg (.var fname) x hwhnf) (by
+              sorry)
+            let xVal : dom := cast sorry xTv.val
+            rest xVal
+          | _ => by
+            apply False.elim
+            sorry
+        | none => by
+          have : False := by simp [hget] at hctxSome
+          exact False.elim this
       | false =>
-        have hBinder : binderType.inferType vars = some .sort := by
+        have hFNonSort : ((PExpr.var fname).inferType vars).isSome ∧ (PExpr.var fname).inferType vars ≠ some .sort := by
           sorry
-        let vars' := vars.push (name, binderType)
-        have hx : (x.inferType vars).isSome ∧ (x.inferType vars) ≠ some .sort := by
-          sorry
-        let xTv := PExpr.interp false vars ctx halign x hx
-        let domWhnf := PExpr.interp true vars ctx halign binderType (by
-          simp [hBinder])
-        let dom := domWhnf.toType
-        let xVal : dom := cast sorry xTv.val
-        let ctx' := ctx.push name ⟨TypeWhnf.ret dom, xVal⟩
-        have hBody : (body.inferType vars').isSome ∧ (body.inferType vars') ≠ some .sort := by
-          sorry
-        PExpr.interp false vars' ctx'
-          (Ctx.aligned_push vars ctx halign name binderType ⟨TypeWhnf.ret dom, xVal⟩)
-          body hBody
-    | .forallE name binderType body =>
-      match isType with
-      | true =>
-        have hBinder : binderType.inferType vars = some .sort := by
-          sorry
-        let vars' := vars.push (name, binderType)
-        have hx : (x.inferType vars).isSome ∧ (x.inferType vars) ≠ some .sort := by
-          sorry
-        let xTv := PExpr.interp false vars ctx halign x hx
-        let domWhnf := PExpr.interp true vars ctx halign binderType (by
-          simp [hBinder])
-        let dom := domWhnf.toType
-        let xVal : dom := cast sorry xTv.val
-        let ctx' := ctx.push name ⟨TypeWhnf.ret dom, xVal⟩
-        have hBody : body.inferType vars' = some .sort := by
-          sorry
-        PExpr.interp true vars' ctx'
-          (Ctx.aligned_push vars ctx halign name binderType ⟨TypeWhnf.ret dom, xVal⟩)
-          body hBody
-      | false =>
-        by
+        let fTv := PExpr.interp false vars ctx halign (.var fname) (by
+          trivial) hFNonSort
+        match fTv.whnf with
+        | TypeWhnf.ext dom rest =>
+          let xTv := PExpr.interp false vars ctx halign x (by
+            exact PExpr.isWhnf_app_arg (.var fname) x hwhnf) (by
+            sorry)
+          let xVal : dom := cast sorry xTv.val
+          let fVal : (v : dom) → (rest v).toType := cast sorry fTv.val
+          ⟨rest xVal, fVal xVal⟩
+        | _ => by
           apply False.elim
-          simp at he
-          rw [welltyped_app_iff] at he
-          obtain ⟨name', binder', bodyt, hbody, hbinder⟩ := he
-          grind [inferType_forallE_eq_sort_or_none]
+          sorry
     | _ =>
-      if h: isType then
-        by
-          simp [h]
-          exact panic! "Impossible under WHNF input expr"
-
-      else
-        by
-          simp [h]
-          exact panic! "Impossible under WHNF input expr"
+      by
+        apply False.elim
+        -- Under the atomic-application invariant, app heads are variables.
+        sorry
