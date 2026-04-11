@@ -89,39 +89,33 @@ isType flag determines which branch.
 
 partial def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
     (tyCtx : TyCtx.{uu}) (ictx : ICtx.{uu})
-    : PExpr → Option (TypeWhnf.{uu} ⊕ TypedVal.{uu})
-
+    : PExpr → Option (if isType then TypeWhnf.{uu} else TypedVal.{uu})
   | .sort =>
     match isType with
     | true => none
     | false => none
-
   | .var name =>
     match isType with
-    | true => (tyCtx.get name).map Sum.inl
-    | false => (ictx.get name).map Sum.inr
-
+    | true => tyCtx.get name
+    | false => ictx.get name
   | .forallE name binderType body =>
     match isType with
     | true => do
-      let .inl domWhnf ← PExpr.interp true vars tyCtx ictx binderType | none
+      let domWhnf ← PExpr.interp true vars tyCtx ictx binderType
       match domWhnf with
       | TypeWhnf.ret dom =>
-        return Sum.inl (TypeWhnf.ext dom (fun v =>
+        return  (TypeWhnf.ext dom (fun v =>
           let vars' := vars.push (name, binderType)
           let tyCtx' := tyCtx.push (name, TypeWhnf.ret dom)
           let ictx' := ictx.push name ⟨TypeWhnf.ret dom, v⟩
-          match PExpr.interp true vars' tyCtx' ictx' body with
-          | some (.inl w) => w
-          | _ => TypeWhnf.ret PUnit))
+          (PExpr.interp true vars' tyCtx' ictx' body).get sorry))
       | _ => none
     | false => none
-
   | .lam name binderType body =>
     match isType with
     | true => none
     | false => do
-      let .inl domWhnf ← PExpr.interp true vars tyCtx ictx binderType | none
+      let domWhnf ← PExpr.interp true vars tyCtx ictx binderType
       match domWhnf with
       | TypeWhnf.ret dom =>
         let vars' := vars.push (name, binderType)
@@ -131,33 +125,28 @@ partial def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
           let bodyTy := match PExpr.inferType vars' body with
             | some te => te
             | none => PExpr.sort
-          match PExpr.interp true vars' tyCtx' ictx' bodyTy with
-          | some (.inl w) => w
-          | _ => TypeWhnf.ret PUnit)
+          (PExpr.interp true vars' tyCtx' ictx' bodyTy).get sorry)
         let val : whnf.toType := fun v =>
           let ictx' := ictx.push name ⟨TypeWhnf.ret dom, v⟩
-          match PExpr.interp false vars' tyCtx' ictx' body with
-          | some (.inr tv) => cast sorry tv.val
-          | _ => sorry
-        return Sum.inr ⟨whnf, val⟩
+          cast sorry ((PExpr.interp false vars' tyCtx' ictx' body).get sorry).val
+        return ⟨whnf, val⟩
       | _ => none
-
   | .app f x =>
     match isType with
     | true => do
-      let .inl fWhnf ← PExpr.interp true vars tyCtx ictx f | none
+      let fWhnf ← PExpr.interp true vars tyCtx ictx f
       match fWhnf with
       | TypeWhnf.ext dom rest =>
-        let .inr xTv ← PExpr.interp false vars tyCtx ictx x | none
+        let xTv ← PExpr.interp false vars tyCtx ictx x
         let xVal : dom := cast sorry xTv.val
-        return Sum.inl (rest xVal)
+        return rest xVal
       | _ => none
     | false => do
-      let .inr fTv ← PExpr.interp false vars tyCtx ictx f | none
+      let fTv ← PExpr.interp false vars tyCtx ictx f
       match fTv.whnf with
       | TypeWhnf.ext dom rest =>
-        let .inr xTv ← PExpr.interp false vars tyCtx ictx x | none
+        let xTv ← PExpr.interp false vars tyCtx ictx x
         let xVal : dom := cast sorry xTv.val
         let fVal : (v : dom) → (rest v).toType := cast sorry fTv.val
-        return Sum.inr ⟨rest xVal, fVal xVal⟩
+        return ⟨rest xVal, fVal xVal⟩
       | _ => none
