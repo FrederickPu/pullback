@@ -168,13 +168,34 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
             (Ctx.aligned_push vars ctx halign name binderType ⟨TypeWhnf.ret dom, v⟩)
             body hBody)))
     | false => by
-      simp only [Bool.false_eq_true, ↓reduceIte]
-      exact panic! "unreachable"
+      apply False.elim
+      simp [inferType] at he
+      have := he.1
+      simp at this
+      option_elim
+      have hdolift' : dolift = sort := by
+        apply by_contra
+        intro H
+        simp at this
+      simp [hdolift'] at this
+      option_elim
+      have : dolift = sort := by
+        apply by_contra
+        intro H
+        simp at this
+      grind
   | .lam name binderType body, he =>
     match isType with
     | true => by
-        simp only [↓reduceIte];
-        exact panic! "unreachable"
+        apply False.elim
+        simp only [↓reduceIte, inferType, Option.pure_def, Option.bind_eq_bind] at he
+        option_elim
+        cases em (dolift = sort) with
+        | inl hl =>
+          simp only [hl] at he
+          option_elim
+          simp at he
+        | inr hr => simp at he
     | false =>
       have hBinder : binderType.inferType vars = some .sort := by
         rcases (PExpr.welltyped_lam_iff vars name binderType body).1 he with ⟨hBinder, _⟩
@@ -201,25 +222,61 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
           bodyTv.val
         ⟨whnf, val⟩
   | .app f x, he =>
-    match isType with
-    | true =>
-      let fWhnf := PExpr.interp true vars ctx halign f sorry
-      match fWhnf with
-      | TypeWhnf.ext dom rest =>
-        let xTv := PExpr.interp false vars ctx halign x sorry
+    -- Assume application heads are beta-reduced / WHNF and destructure the head expression first.
+    match f with
+    | .lam name binderType body =>
+      match isType with
+      | true =>
+        by
+          simp only [↓reduceIte]
+          exact panic! "impossible under WHNF input expr"
+      | false =>
+        have hBinder : binderType.inferType vars = some .sort := by
+          sorry
+        let vars' := vars.push (name, binderType)
+        have hx : (x.inferType vars).isSome ∧ (x.inferType vars) ≠ some .sort := by
+          sorry
+        let xTv := PExpr.interp false vars ctx halign x hx
+        let domWhnf := PExpr.interp true vars ctx halign binderType (by
+          simp [hBinder])
+        let dom := domWhnf.toType
         let xVal : dom := cast sorry xTv.val
-        rest xVal
-      | _ => by
-        simp only [↓reduceIte];
-        exact panic! "unreachable"
-    | false =>
-      let fTv := PExpr.interp false vars ctx halign f sorry
-      match fTv.whnf with
-      | TypeWhnf.ext dom rest =>
-        let xTv := PExpr.interp false vars ctx halign x sorry
+        let ctx' := ctx.push name ⟨TypeWhnf.ret dom, xVal⟩
+        have hBody : (body.inferType vars').isSome ∧ (body.inferType vars') ≠ some .sort := by
+          sorry
+        PExpr.interp false vars' ctx'
+          (Ctx.aligned_push vars ctx halign name binderType ⟨TypeWhnf.ret dom, xVal⟩)
+          body hBody
+    | .forallE name binderType body =>
+      match isType with
+      | true =>
+        have hBinder : binderType.inferType vars = some .sort := by
+          sorry
+        let vars' := vars.push (name, binderType)
+        have hx : (x.inferType vars).isSome ∧ (x.inferType vars) ≠ some .sort := by
+          sorry
+        let xTv := PExpr.interp false vars ctx halign x hx
+        let domWhnf := PExpr.interp true vars ctx halign binderType (by
+          simp [hBinder])
+        let dom := domWhnf.toType
         let xVal : dom := cast sorry xTv.val
-        let fVal : (v : dom) → (rest v).toType := cast sorry fTv.val
-        ⟨rest xVal, fVal xVal⟩
-      | _ => by
-        simp only [Bool.false_eq_true, ↓reduceIte];
-        exact panic! "unreachable"
+        let ctx' := ctx.push name ⟨TypeWhnf.ret dom, xVal⟩
+        have hBody : body.inferType vars' = some .sort := by
+          sorry
+        PExpr.interp true vars' ctx'
+          (Ctx.aligned_push vars ctx halign name binderType ⟨TypeWhnf.ret dom, xVal⟩)
+          body hBody
+      | false =>
+        by
+          apply False.elim
+          sorry
+    | _ =>
+      if h: isType then
+        by
+          simp [h]
+          exact panic! "Impossible under WHNF input expr"
+
+      else
+        by
+          simp [h]
+          exact panic! "Impossible under WHNF input expr"
