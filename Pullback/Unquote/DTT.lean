@@ -90,12 +90,18 @@ theorem aligned_push (vars : Map Name PExpr) (ctx : Ctx.{uu})
   sorry
 end Ctx
 
+theorem PExpr.inferType_forallE_eq_sort_or_none (vars : Map Name PExpr) (name : Name) (binderType bodyType : PExpr) :
+  (forallE name binderType bodyType).inferType vars = some .sort ∨ (forallE name binderType bodyType).inferType vars = none := sorry
+
 theorem PExpr.welltyped_lam_iff (vars : Map Name PExpr) (name : Name)
     (binderType body : PExpr) :
     ((PExpr.lam name binderType body).inferType vars).isSome ∧ (PExpr.lam name binderType body).inferType vars ≠ some .sort ↔
       (binderType.inferType vars = some .sort) ∧
       (body.inferType (vars.push (name, binderType))).isSome := by
   sorry
+
+theorem PExpr.inferType_lam_ne_sort (vars : Map Name PExpr) (name : Name) (binderType body : PExpr) :
+  ((PExpr.lam name binderType body).inferType vars) ≠ some .sort := sorry
 
 theorem PExpr.welltyped_forallE_iff (vars : Map Name PExpr) (name : Name)
     (binderType body : PExpr) :
@@ -104,13 +110,22 @@ theorem PExpr.welltyped_forallE_iff (vars : Map Name PExpr) (name : Name)
       (body.inferType (vars.push (name, binderType))).isSome := by
   sorry
 
-theorem PExpr.welltyped_app_iff (vars : Map Name PExpr) (f x : PExpr) :
-    ((PExpr.app f x).inferType vars).isSome ↔
+theorem PExpr.welltyped_sort_app_iff (vars : Map Name PExpr) (f x : PExpr) :
+    ((PExpr.app f x).inferType vars) = some .sort ↔
       ∃ name binderType bodyType,
         f.inferType vars = some (.forallE name binderType bodyType) ∧
         x.inferType vars = some binderType := by
   sorry
 
+theorem PExpr.welltyped_app_iff (vars : Map Name PExpr) (f x : PExpr) :
+    ((PExpr.app f x).inferType vars).isSome ∧ ((PExpr.app f x).inferType vars) ≠ some .sort ↔
+      ∃ name binderType body,
+        f.inferType vars = some (.lam name binderType body) ∧
+        x.inferType vars = some binderType := by
+  sorry
+
+theorem PExpr.inferType_app_eq_sort_imp_sort (vars : Map Name PExpr) (f x : PExpr) :
+  (f.app x).inferType vars = some .sort → f.inferType vars = some .sort := sorry
 /-! ## interp
 
 Returns Sum:
@@ -228,8 +243,10 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
       match isType with
       | true =>
         by
-          simp only [↓reduceIte]
-          exact panic! "impossible under WHNF input expr"
+          apply False.elim
+          simp at he
+          have := inferType_app_eq_sort_imp_sort vars _ x he
+          exact inferType_lam_ne_sort vars _ _ _ this
       | false =>
         have hBinder : binderType.inferType vars = some .sort := by
           sorry
@@ -269,7 +286,10 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
       | false =>
         by
           apply False.elim
-          sorry
+          simp at he
+          rw [welltyped_app_iff] at he
+          obtain ⟨name', binder', bodyt, hbody, hbinder⟩ := he
+          grind [inferType_forallE_eq_sort_or_none]
     | _ =>
       if h: isType then
         by
