@@ -45,18 +45,7 @@ def PExpr.inferType (vars : Map Name PExpr) : PExpr → Option PExpr
   guard (xType == binderType)
   return bodyType.subst name x
 
-/-! ## TypeTelescope
-
-A telescope represents a dependent chain of types:
-  (a : A) → (b : B a) → (c : C a b) → RetType a b c
-
-Each entry's type can depend on the values of all previous entries.
-The last entry is the return type.
-
-This is used to represent types in the interpretation context,
-since a constant like `Vector` has type `Type → Nat → Type`,
-which is a telescope: [Type, (fun α => Nat), (fun α n => Type)].
--/
+/-! ## TypeWhnf -/
 
 universe uu
 
@@ -64,48 +53,111 @@ inductive TypeWhnf : Type (uu + 1) where
   | ret : Type uu → TypeWhnf
   | ext : (dom : Type uu) → (dom → TypeWhnf) → TypeWhnf
 
-def TypeWhnf.isFun : TypeWhnf.{uu} → Bool
-| ret _ => false
-| ext _ _ => true
+namespace TypeWhnf
+def toType : TypeWhnf.{uu} → Type uu
+  | .ret T => T
+  | .ext dom rest => (x : dom) → (rest x).toType
+end TypeWhnf
 
-def TypeWhnf.dom : (T : TypeWhnf.{uu}) → (hfun : T.isFun) → Type uu
-| ret _, hfun => by simp [isFun] at hfun
-| ext dom _, hfun => dom
+/-! ## TypedVal: a value paired with its type -/
 
-def TypeWhnf.codom : (T : TypeWhnf.{uu}) → (hfun : T.isFun) → (T.dom hfun → TypeWhnf.{uu})
-| ret _, hfun => by simp [isFun] at hfun
-| ext _ rest, hfun => rest
+structure TypedVal where
+  whnf : TypeWhnf.{uu}
+  val : whnf.toType
 
-def TypeWhnf.apply : (T : TypeWhnf.{uu}) → (hfun : T.isFun) → T.dom hfun → TypeWhnf.{uu} :=
-  fun T hfun t => (T.codom hfun) t
+/-! ## Contexts -/
 
 def TyCtx := Map Name TypeWhnf.{uu}
+def ICtx := Array (Name × TypedVal.{uu})
 
-/-! ## interpType
+namespace ICtx
+def empty : ICtx.{uu} := #[]
+def push (ctx : ICtx.{uu}) (name : Name) (e : TypedVal.{uu}) : ICtx.{uu} :=
+  Array.push ctx (name, e)
+def get (ctx : ICtx.{uu}) (name : Name) : Option (TypedVal.{uu}) :=
+  (ctx.reverse.find? (·.1 == name)).map (·.2)
+end ICtx
 
-Interprets a PExpr type expression into a TypeTelescope.
-The telescope captures dependency: for a forallE chain,
-each codomain can depend on previous values.
+/-! ## interp
 
-For fully-applied types, the result is `.ret T` and
-`.toType` gives the actual `Type uu`.
+Returns Sum:
+- inl whnf : type mode result (a TypeWhnf)
+- inr tv   : value mode result (a TypedVal)
+
+isType flag determines which branch.
 -/
 
-partial def PExpr.interpType (vars : Map Name PExpr) (tyCtx : TyCtx.{uu})
-    : PExpr → Option (TypeWhnf.{uu})
-  | .sort => none
-  | .var name => tyCtx.get name
-  | .forallE _name binderType body => do
-    let .ret dom ← binderType.interpType vars tyCtx | none
-    some (.ext dom (fun _v =>
-      -- For dependent types, v would be used to extend tyCtx
-      -- For now, non-dependent: ignore v
-      match body.interpType vars tyCtx with
-      | some tel => tel
-      | none => .ret PUnit))
-  | .app f x => do
-    let fTel ← f.interpType vars tyCtx
-    let .ret xTy ← x.interpType vars tyCtx | none
-    -- Apply x to f's telescope
-    fTel.apply sorry (cast sorry xTy)
-  | .lam _ _ _ => none
+partial def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
+    (tyCtx : TyCtx.{uu}) (ictx : ICtx.{uu})
+    : PExpr → Option (TypeWhnf.{uu} ⊕ TypedVal.{uu})
+
+  | .sort =>
+    match isType with
+    | true => none
+    | false => none
+
+  | .var name =>
+    match isType with
+    | true => (tyCtx.get name).map Sum.inl
+    | false => (ictx.get name).map Sum.inr
+
+  | .forallE name binderType body =>
+    match isType with
+    | true => do
+      let .inl domWhnf ← PExpr.interp true vars tyCtx ictx binderType | none
+      match domWhnf with
+      | TypeWhnf.ret dom =>
+        return Sum.inl (TypeWhnf.ext dom (fun v =>
+          let vars' := vars.push (name, binderType)
+          let tyCtx' := tyCtx.push (name, TypeWhnf.ret dom)
+          let ictx' := ictx.push name ⟨TypeWhnf.ret dom, v⟩
+          match PExpr.interp true vars' tyCtx' ictx' body with
+          | some (.inl w) => w
+          | _ => TypeWhnf.ret PUnit))
+      | _ => none
+    | false => none
+
+  | .lam name binderType body =>
+    match isType with
+    | true => none
+    | false => do
+      let .inl domWhnf ← PExpr.interp true vars tyCtx ictx binderType | none
+      match domWhnf with
+      | TypeWhnf.ret dom =>
+        let vars' := vars.push (name, binderType)
+        let tyCtx' := tyCtx.push (name, TypeWhnf.ret dom)
+        let whnf := TypeWhnf.ext dom (fun v =>
+          let ictx' := ictx.push name ⟨TypeWhnf.ret dom, v⟩
+          let bodyTy := match PExpr.inferType vars' body with
+            | some te => te
+            | none => PExpr.sort
+          match PExpr.interp true vars' tyCtx' ictx' bodyTy with
+          | some (.inl w) => w
+          | _ => TypeWhnf.ret PUnit)
+        let val : whnf.toType := fun v =>
+          let ictx' := ictx.push name ⟨TypeWhnf.ret dom, v⟩
+          match PExpr.interp false vars' tyCtx' ictx' body with
+          | some (.inr tv) => cast sorry tv.val
+          | _ => sorry
+        return Sum.inr ⟨whnf, val⟩
+      | _ => none
+
+  | .app f x =>
+    match isType with
+    | true => do
+      let .inl fWhnf ← PExpr.interp true vars tyCtx ictx f | none
+      match fWhnf with
+      | TypeWhnf.ext dom rest =>
+        let .inr xTv ← PExpr.interp false vars tyCtx ictx x | none
+        let xVal : dom := cast sorry xTv.val
+        return Sum.inl (rest xVal)
+      | _ => none
+    | false => do
+      let .inr fTv ← PExpr.interp false vars tyCtx ictx f | none
+      match fTv.whnf with
+      | TypeWhnf.ext dom rest =>
+        let .inr xTv ← PExpr.interp false vars tyCtx ictx x | none
+        let xVal : dom := cast sorry xTv.val
+        let fVal : (v : dom) → (rest v).toType := cast sorry fTv.val
+        return Sum.inr ⟨rest xVal, fVal xVal⟩
+      | _ => none
