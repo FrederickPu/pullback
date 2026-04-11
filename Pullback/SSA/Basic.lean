@@ -70,7 +70,7 @@ def SSAExpr.size : SSAExpr → Nat
   | letE _ val body  => 1 + val.size + body.size
   | app f x          => 1 + f.size + x.size
 
-abbrev Map (α β : Type) := Array (α × β)
+abbrev Map (α  : Type u) (β : Type v) := Array (α × β)
 
 abbrev VarMap := Map Name SSAType
 
