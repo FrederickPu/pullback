@@ -46,13 +46,13 @@ def PExpr.inferType (vars : Map Name PExpr) : PExpr → Option PExpr
   guard (xType == binderType)
   return bodyType.subst name x
 
-/-! ## TypeWhnf -/
-
 universe uu
 
 inductive TypeWhnf : Type (uu + 1) where
   | ret : Type uu → TypeWhnf
   | ext : (dom : Type uu) → (dom → TypeWhnf) → TypeWhnf
+
+instance : Inhabited TypeWhnf := ⟨.ret PUnit⟩
 
 namespace TypeWhnf
 def toType : TypeWhnf.{uu} → Type uu
@@ -66,13 +66,11 @@ end TypeWhnf
   TypeWhnf.toType (TypeWhnf.ext dom rest) = ((x : dom) → TypeWhnf.toType (rest x)) := by
   rfl
 
-/-! ## TypedVal: a value paired with its type -/
-
 structure TypedVal where
   whnf : TypeWhnf.{uu}
   val : whnf.toType
 
-/-! ## Contexts -/
+instance : Inhabited (TypedVal) := ⟨⟨.ret PUnit, PUnit.unit⟩⟩
 
 def Ctx := Array (Name × TypedVal.{uu})
 
@@ -94,16 +92,23 @@ end Ctx
 
 theorem PExpr.welltyped_lam_iff (vars : Map Name PExpr) (name : Name)
     (binderType body : PExpr) :
-    ((PExpr.lam name binderType body).inferType vars).isSome ↔
+    ((PExpr.lam name binderType body).inferType vars).isSome ∧ (PExpr.lam name binderType body).inferType vars ≠ some .sort ↔
       (binderType.inferType vars = some .sort) ∧
       (body.inferType (vars.push (name, binderType))).isSome := by
   sorry
 
 theorem PExpr.welltyped_forallE_iff (vars : Map Name PExpr) (name : Name)
     (binderType body : PExpr) :
-    ((PExpr.forallE name binderType body).inferType vars).isSome ↔
+    ((PExpr.forallE name binderType body).inferType vars) = some .sort ↔
       (binderType.inferType vars = some .sort) ∧
       (body.inferType (vars.push (name, binderType))).isSome := by
+  sorry
+
+theorem PExpr.welltyped_app_iff (vars : Map Name PExpr) (f x : PExpr) :
+    ((PExpr.app f x).inferType vars).isSome ↔
+      ∃ name binderType bodyType,
+        f.inferType vars = some (.forallE name binderType bodyType) ∧
+        x.inferType vars = some binderType := by
   sorry
 
 /-! ## interp
@@ -117,7 +122,7 @@ isType flag determines which branch.
 
 def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
   (ctx : Ctx.{uu}) (halign : Ctx.aligned vars ctx)
-    : (e : PExpr) → (e.inferType vars).isSome → (if isType then TypeWhnf.{uu} else TypedVal.{uu})
+    : (e : PExpr) → (if isType then e.inferType vars = some .sort else (e.inferType vars).isSome ∧ (e.inferType vars) ≠ some .sort) → (if isType then TypeWhnf.{uu} else TypedVal.{uu})
   | .sort, he =>
     match isType with
     | true => by simp [inferType] at he
@@ -128,57 +133,61 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
       match h : ctx.get name with
       | some x => x.whnf
       | none => by {
-        have hctx : (ctx.get name).isSome := halign name (by simpa [inferType] using he)
+        have hctx : (ctx.get name).isSome := halign name (by grind [inferType])
         simp [h] at hctx
       }
     | false =>
       match h : ctx.get name with
       | some x => x
       | none => by {
-        have hctx : (ctx.get name).isSome := halign name (by simpa [inferType] using he)
+        have hctx : (ctx.get name).isSome := halign name (by simpa using he.1)
         simp [h] at hctx
       }
   | .forallE name binderType body, he =>
     match isType with
     | true =>
+      have heForall : (PExpr.forallE name binderType body).inferType vars = some .sort := by
+        simpa using he
       have hBinder : binderType.inferType vars = some .sort := by
-        rcases (PExpr.welltyped_forallE_iff vars name binderType body).1 he with ⟨hBinder, _⟩
+        rcases (PExpr.welltyped_forallE_iff vars name binderType body).1 heForall with ⟨hBinder, _⟩
         exact hBinder
-      have hBody : (body.inferType (vars.push (name, binderType))).isSome := by
-        rcases (PExpr.welltyped_forallE_iff vars name binderType body).1 he with ⟨_, hBody⟩
-        exact hBody
+      have hBody : (body.inferType (vars.push (name, binderType))) = some .sort := by
+        cases hty : body.inferType (vars.push (name, binderType)) with
+        | none =>
+          simp [PExpr.inferType, hBinder, hty] at heForall
+        | some ty =>
+          cases ty <;> simp [PExpr.inferType, hBinder, hty] at heForall
+          simp
       let domWhnf := PExpr.interp true vars ctx halign binderType (by
         simp [hBinder])
-      match h : domWhnf with
-      | TypeWhnf.ret dom =>
-        (TypeWhnf.ext dom (fun v =>
+      let dom := domWhnf.toType
+      (TypeWhnf.ext dom (fun v =>
           let vars' := vars.push (name, binderType)
           let ctx' := ctx.push name ⟨TypeWhnf.ret dom, v⟩
           (PExpr.interp true vars' ctx'
             (Ctx.aligned_push vars ctx halign name binderType ⟨TypeWhnf.ret dom, v⟩)
             body hBody)))
-      | _ => by
-        apply False.elim
-        simp [inferType] at he
-        option_elim
-        sorry
-    | false => sorry
+    | false => by
+      simp only [Bool.false_eq_true, ↓reduceIte]
+      exact panic! "unreachable"
   | .lam name binderType body, he =>
     match isType with
-    | true => sorry
+    | true => by
+        simp only [↓reduceIte];
+        exact panic! "unreachable"
     | false =>
       have hBinder : binderType.inferType vars = some .sort := by
         rcases (PExpr.welltyped_lam_iff vars name binderType body).1 he with ⟨hBinder, _⟩
         exact hBinder
-      have hBody : (body.inferType (vars.push (name, binderType))).isSome := by
-        rcases (PExpr.welltyped_lam_iff vars name binderType body).1 he with ⟨_, hBody⟩
-        exact hBody
+      let vars' := vars.push (name, binderType)
+      have hBody : (body.inferType vars').isSome ∧ (body.inferType vars') ≠ some .sort := by
+        rcases (PExpr.welltyped_lam_iff vars name binderType body).1 he with x
+        -- todo :: use submap lemma
+        sorry
       let domWhnf := PExpr.interp true vars ctx halign binderType (by
         simp [hBinder])
-      match domWhnf with
-      | TypeWhnf.ret dom =>
-        let vars' := vars.push (name, binderType)
-        let whnf := TypeWhnf.ext dom (fun v =>
+      let dom := domWhnf.toType
+      let whnf := TypeWhnf.ext dom (fun v =>
           let ctx' := ctx.push name ⟨TypeWhnf.ret dom, v⟩
           let bodyTv := PExpr.interp false vars' ctx'
             (Ctx.aligned_push vars ctx halign name binderType ⟨TypeWhnf.ret dom, v⟩)
@@ -191,7 +200,6 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
             body hBody
           bodyTv.val
         ⟨whnf, val⟩
-      | _ => sorry
   | .app f x, he =>
     match isType with
     | true =>
@@ -201,7 +209,9 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
         let xTv := PExpr.interp false vars ctx halign x sorry
         let xVal : dom := cast sorry xTv.val
         rest xVal
-      | _ => sorry
+      | _ => by
+        simp only [↓reduceIte];
+        exact panic! "unreachable"
     | false =>
       let fTv := PExpr.interp false vars ctx halign f sorry
       match fTv.whnf with
@@ -210,4 +220,6 @@ def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
         let xVal : dom := cast sorry xTv.val
         let fVal : (v : dom) → (rest v).toType := cast sorry fTv.val
         ⟨rest xVal, fVal xVal⟩
-      | _ => sorry
+      | _ => by
+        simp only [Bool.false_eq_true, ↓reduceIte];
+        exact panic! "unreachable"
