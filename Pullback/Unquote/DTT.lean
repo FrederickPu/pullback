@@ -31,7 +31,7 @@ partial def PExpr.betaReduce : PExpr → PExpr
 
 def PExpr.inferType (vars : Map Name PExpr) : PExpr → Option PExpr
 | .var name => vars.get name
-| .sort => some .sort
+| .sort => none
 | .lam name type body => do
   let bodyType ← body.inferType (vars.push (name, type))
   return .forallE name type bodyType
@@ -87,66 +87,81 @@ Returns Sum:
 isType flag determines which branch.
 -/
 
-partial def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
+def PExpr.interp (isType : Bool) (vars : Map Name PExpr)
     (tyCtx : TyCtx.{uu}) (ictx : ICtx.{uu})
-    : PExpr → Option (if isType then TypeWhnf.{uu} else TypedVal.{uu})
-  | .sort =>
+    : (e : PExpr) → (e.inferType vars).isSome → (if isType then TypeWhnf.{uu} else TypedVal.{uu})
+  | .sort, he =>
     match isType with
-    | true => none
-    | false => none
-  | .var name =>
+    | true => by simp [inferType] at he
+    | false => by simp [inferType] at he
+  | .var name, he =>
     match isType with
-    | true => tyCtx.get name
-    | false => ictx.get name
-  | .forallE name binderType body =>
+    | true =>
+      match h : tyCtx.get name with
+      | some x => x
+      | none => by {
+        simp [inferType] at he
+        sorry
+      }
+    | false =>
+      match h : ictx.get name with
+      | some x => x
+      | none => by {
+        simp [inferType] at he
+        sorry
+      }
+  | .forallE name binderType body, he =>
     match isType with
-    | true => do
-      let domWhnf ← PExpr.interp true vars tyCtx ictx binderType
-      match domWhnf with
+    | true =>
+      let domWhnf := PExpr.interp true vars tyCtx ictx binderType sorry
+      match h : domWhnf with
       | TypeWhnf.ret dom =>
-        return  (TypeWhnf.ext dom (fun v =>
+        (TypeWhnf.ext dom (fun v =>
           let vars' := vars.push (name, binderType)
           let tyCtx' := tyCtx.push (name, TypeWhnf.ret dom)
           let ictx' := ictx.push name ⟨TypeWhnf.ret dom, v⟩
-          (PExpr.interp true vars' tyCtx' ictx' body).get sorry))
-      | _ => none
-    | false => none
-  | .lam name binderType body =>
+          (PExpr.interp true vars' tyCtx' ictx' body sorry)))
+      | _ => by
+        apply False.elim
+        simp [inferType] at he
+        option_elim
+        sorry
+    | false => sorry
+  | .lam name binderType body, he =>
     match isType with
-    | true => none
-    | false => do
-      let domWhnf ← PExpr.interp true vars tyCtx ictx binderType
+    | true => sorry
+    | false =>
+      let domWhnf := PExpr.interp true vars tyCtx ictx binderType sorry
       match domWhnf with
       | TypeWhnf.ret dom =>
         let vars' := vars.push (name, binderType)
         let tyCtx' := tyCtx.push (name, TypeWhnf.ret dom)
         let whnf := TypeWhnf.ext dom (fun v =>
           let ictx' := ictx.push name ⟨TypeWhnf.ret dom, v⟩
-          let bodyTy := match PExpr.inferType vars' body with
-            | some te => te
-            | none => PExpr.sort
-          (PExpr.interp true vars' tyCtx' ictx' bodyTy).get sorry)
+          let bodyTv := PExpr.interp false vars' tyCtx' ictx' body sorry
+          bodyTv.whnf)
         let val : whnf.toType := fun v =>
           let ictx' := ictx.push name ⟨TypeWhnf.ret dom, v⟩
-          cast sorry ((PExpr.interp false vars' tyCtx' ictx' body).get sorry).val
-        return ⟨whnf, val⟩
-      | _ => none
-  | .app f x =>
+          let bodyTv := PExpr.interp false vars' tyCtx' ictx' body sorry
+          bodyTv.val
+        ⟨whnf, val⟩
+      | _ => sorry
+  | .app f x, he =>
     match isType with
-    | true => do
-      let fWhnf ← PExpr.interp true vars tyCtx ictx f
+    | true =>
+      let fWhnf := PExpr.interp true vars tyCtx ictx f sorry
       match fWhnf with
       | TypeWhnf.ext dom rest =>
-        let xTv ← PExpr.interp false vars tyCtx ictx x
+        let xTv := PExpr.interp false vars tyCtx ictx x sorry
         let xVal : dom := cast sorry xTv.val
-        return rest xVal
-      | _ => none
-    | false => do
-      let fTv ← PExpr.interp false vars tyCtx ictx f
+        rest xVal
+      | _ => sorry
+    | false =>
+      let fTv := PExpr.interp false vars tyCtx ictx f sorry
       match fTv.whnf with
       | TypeWhnf.ext dom rest =>
-        let xTv ← PExpr.interp false vars tyCtx ictx x
+        let xTv := PExpr.interp false vars tyCtx ictx x sorry
         let xVal : dom := cast sorry xTv.val
         let fVal : (v : dom) → (rest v).toType := cast sorry fTv.val
-        return ⟨rest xVal, fVal xVal⟩
-      | _ => none
+        ⟨rest xVal, fVal xVal⟩
+      | _ => sorry
