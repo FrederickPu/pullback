@@ -44,6 +44,9 @@ theorem Map.submap_get_uniqueKeys {α β} [DecidableEq α] (vars₁ vars₂ : Ma
     rw [← this]
     exact get_uniqueKeys vars₁ hvars₁ x hx
 
+instance (args : ArgMap) : Inhabited { args' : ArgMap // args'.equivTypes args } :=
+    ⟨⟨args, by simp [ArgMap.equivTypes]⟩⟩
+
 -- todo :: add hyps for alignment between the continutations in name and function form (kbreak and nkbreak)
 def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} (kbreak kcontinue : Option ({mutArgs' : ArgMap // mutArgs'.equivTypes kmutArgs} → Option SSAConst)) {vars mutVars kmutVars : VarMap} (nkbreak nkcontinue : Option Name)
     (hMut : mutVars.uniqueKeys)
@@ -105,12 +108,14 @@ def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} (kbreak kcontinue : Optio
 | loop body rest, hnkBreak, hnkContinue => do
     let kMutArgs' := mutArgs
     let ⟨kcontinue, hkcontinue⟩ ← kcontinue.attach
-    let kcontinue' := sorry
-        -- fun mutArgs' : Array (Name × SSAConst) =>
-        --     kcontinue (kMutArgs'.map (fun (n, _) => (n, (mutArgs'.findLast? (·.1 == n)).get!.2)))
-    SSA.loop mutArgs (fun mutArgs' kcont =>
-        body.eval (args ++ mutArgs') mutArgs' kMutArgs' kcontinue' kcont) |>.attachWith _
-            fun x hx => sorry
+    let kcontinue' : { mutArgs' : ArgMap // mutArgs'.equivTypes kMutArgs' } → Option SSAConst :=
+        fun ⟨mutArgs', hmutArgs'⟩ =>
+            kcontinue ⟨(kMutArgs'.map (fun (n, _) => (n, (mutArgs'.get n).get!))), sorry⟩
+    let nKBreak : Name := freshName (vars.map (·.1) ++ body.vars) `kbreak
+    let nKContinue : Name := freshName (vars.map (·.1) ++ body.vars) `kcontinue
+    SSA.loop (⟨mutArgs, sorry⟩ : { mutArgs' : ArgMap // mutArgs'.equivTypes kMutArgs' }) (fun mutArgs' kcont =>
+        body.evalRefined (some (fun x => kcont x)) kcontinue' nKBreak nKContinue hMut sorry halign halignMut halignMut sorry sorry |>.subtypeMap sorry
+    )
 | .break, hnkBreak, hnkContinue =>
     match kbreak with
     | some kbreak' => kbreak' ⟨mutArgs, sorry⟩ |>.attachWith _
@@ -127,14 +132,14 @@ def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} (kbreak kcontinue : Optio
 | ifthenelse c t e rest, hnkBreak, hnkContinue => do
     let kMutArgs' := mutArgs
     let kcontinue' : { x : ArgMap // x.equivTypes kMutArgs' } → Option SSAConst :=
-        fun (⟨mutArgs', hmutArgs'⟩ : {x : ArgMap // x.equivTypes kMutArgs'}) =>
+        fun ⟨mutArgs', hmutArgs'⟩ =>
             let mutArgsNew : Array (Name × SSAConst) := (kMutArgs'.map (fun (p : Name × SSAConst) => (p.1, (mutArgs'.get p.1).get!)))
             have halign' : ArgMap.submapVars (args ++ mutArgsNew) (vars) := sorry
             have halignMut' : ArgMap.equivVars (mutArgsNew) (mutVars) := sorry
             (rest.evalRefined kbreak kcontinue nkbreak nkcontinue hMut hcontMutVars halign' halignMut' halignkMut sorry sorry).map Subtype.val
     let kbreak' : Option ({ x : ArgMap // x.equivTypes kMutArgs' } → Option SSAConst) :=
         kbreak.map (fun kbreak =>
-            fun (⟨mutArgs', hmutArgs'⟩ : {x : ArgMap // x.equivTypes kMutArgs'}) =>
+            fun ⟨mutArgs', hmutArgs'⟩ =>
                 -- want to use the outer contiuation args
                 let mutArgsRestricted := kmutArgs.map (fun (p : Name × SSAConst) => (p.1, (mutArgs'.get p.1).get!))
                 kbreak ⟨mutArgsRestricted, sorry⟩
