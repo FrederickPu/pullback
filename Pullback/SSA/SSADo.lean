@@ -89,19 +89,28 @@ def SSADo.toSSAExpr! (vars : VarMap) (mutVars : VarMap) (kMutVars : VarMap) (kbr
 | ifthenelse cond t e rest =>
     let (_, mutTupleType) := (mkMutTuple mutVars)
     let nKContinue : Name := freshName ((vars.map (·.1) ++ t.vars ++ e.vars)) `kcontinue
-    let nKBreak : Name := freshName ((vars.map (·.1) ++ t.vars ++ e.vars)) `kbreak
     let restMutVars : Array Name := rest.mutVars
     let nS : Name := freshName (Array.append (mutVars.map (·.1)) restMutVars) `s
     -- todo :: pass expanded mutvars into toSSAExpr
     let restExpr := rest.toSSAExpr! vars mutVars kMutVars kbreak kcontinue
     let restType := restExpr.inferType! vars
     let continue' := (SSAExpr.lam nS mutTupleType <| destructMutTuple nS mutVars restExpr)
+
+    let nKBreak : Option Name := kbreak.map (fun _ => freshName ((vars.map (·.1) ++ t.vars ++ e.vars)) `kbreak)
     let kbreak' := (SSAExpr.lam nS mutTupleType <| destructMutTuple nS mutVars restExpr)
-    let texpr := t.toSSAExpr! (vars.push (nKBreak, .fun mutTupleType restType)) mutVars mutVars nKBreak nKContinue
-    let tExprType := texpr.inferType! (Array.push vars (nKBreak, (mkMutTuple mutVars).2.fun restType))
-    let eExpr := e.toSSAExpr! (vars.push (nKBreak, .fun mutTupleType restType)) mutVars mutVars nKBreak nKContinue
-    SSAExpr.letE nKBreak kbreak' <| SSAExpr.letE nKContinue continue' <|
+
+    let vars' := match nKBreak with
+    | some x => (vars.push (x, .fun mutTupleType restType))
+    | _ => vars
+
+    let texpr := t.toSSAExpr! vars' mutVars mutVars nKBreak nKContinue
+    let tExprType := texpr.inferType! vars'
+    let eExpr := e.toSSAExpr! vars' mutVars mutVars nKBreak nKContinue
+    let base := SSAExpr.letE nKContinue continue' <|
     SSAExpr.app (SSAExpr.app (SSAExpr.app (.const (.ifthenelse tExprType)) cond) texpr) (eExpr)
+    match nKBreak with
+    | some x => SSAExpr.letE x kbreak' base
+    | _ => base
 
 -- note: `kcontinue` doubles both as for jumping to next loop iteration and for invoking rest of the program
 -- eg in `if c then t else e; rest` the `kcontinue` gets invoked after evaluating `t` to "jump" to `rest`
@@ -250,15 +259,23 @@ theorem SSADo.toSSAExpr!_vars_equiv
     simp [this]
     simp [toSSAExpr!_vars_equiv hvars, SSAExpr.inferType!_eq_of_vars_equiv hvars]
 | ifthenelse c t e rest => by
-    simp [toSSAExpr!]
     have hfresh :
         freshName (Array.map (fun x => x.1) vars₁ ++ (t.vars ++ e.vars)) =
         freshName (Array.map (fun x => x.1) vars₂ ++ (t.vars ++ e.vars)) := by
-        sorry
-    have hEqPush : ∀ kb τ, Map.equiv (Array.push vars₁ (kb, τ)) (Array.push vars₂ (kb, τ)) :=
+            sorry
+    match kbreak with
+    | some kbreak' =>
+        have hEqPush : ∀ kb τ, Map.equiv (Array.push vars₁ (kb, τ)) (Array.push vars₂ (kb, τ)) :=
         Map.equiv_push vars₁ vars₂ hvars
-    simp [hfresh]
-    simp [toSSAExpr!_vars_equiv hvars, toSSAExpr!_vars_equiv (hEqPush _ _), SSAExpr.inferType!_eq_of_vars_equiv hvars, SSAExpr.inferType!_eq_of_vars_equiv (hEqPush _ _)]
+        simp [toSSAExpr!]
+        simp [hfresh]
+        simp [toSSAExpr!_vars_equiv hvars, toSSAExpr!_vars_equiv (hEqPush _ _), SSAExpr.inferType!_eq_of_vars_equiv hvars, SSAExpr.inferType!_eq_of_vars_equiv (hEqPush _ _)]
+    | none =>
+        have hEqPush : ∀ kb τ, Map.equiv (Array.push vars₁ (kb, τ)) (Array.push vars₂ (kb, τ)) :=
+        Map.equiv_push vars₁ vars₂ hvars
+        simp [toSSAExpr!]
+        simp [hfresh]
+        simp [toSSAExpr!_vars_equiv hvars, SSAExpr.inferType!_eq_of_vars_equiv hvars]
 
 theorem SSADo.toSSAExpr_var_push
     {vars mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
