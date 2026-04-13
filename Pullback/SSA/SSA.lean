@@ -48,6 +48,15 @@ def ContinuationRefines
         k ⟨kmutArgs, ArgMap.equivTypes_rfl kmutArgs⟩ = some x →
             SSAExpr.eval args ((SSAExpr.var nk).app (mkMutTuple kmutVars).1) = some x
 
+def ContinuationPairValid
+    (args kmutArgs : ArgMap)
+    (vars mutVars kmutVars : VarMap)
+    (prog : SSADo)
+    (nk : Option Name)
+    (k : Option ({ mutArgs' : ArgMap // mutArgs'.equivTypes kmutArgs } → Option SSAConst)) : Prop :=
+    nk.All (prog.validContinutationRef vars mutVars kmutVars) ∧
+    Option.All₂ (fun nk kb => ContinuationRefines args kmutArgs kmutVars nk kb) nk k
+
 theorem continuationRefines_eq_some
     {args : ArgMap}
     {kmutArgs : ArgMap}
@@ -102,13 +111,11 @@ def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} (kbreak kcontinue : Optio
     (halignMut : mutArgs.equivVars mutVars)
     (halignkMut : kmutArgs.equivVars kmutVars) :
     (prog : SSADo) →
-    (hnkBreak : nkbreak.All (prog.validContinutationRef vars mutVars kmutVars) ∧
-        Option.All₂ (fun nk kb => ContinuationRefines args kmutArgs kmutVars nk kb) nkbreak kbreak) →
-    (hnkContinue : nkcontinue.All (prog.validContinutationRef vars mutVars kmutVars) ∧
-        Option.All₂ (fun nk kc => ContinuationRefines args kmutArgs kmutVars nk kc) nkcontinue kcontinue) →
+    (hbreak : ContinuationPairValid args kmutArgs vars mutVars kmutVars prog nkbreak kbreak) →
+    (hcontinue : ContinuationPairValid args kmutArgs vars mutVars kmutVars prog nkcontinue kcontinue) →
         Option {x : SSAConst //
             x = (prog.toSSAExpr! vars mutVars kmutVars nkbreak nkcontinue).eval args}
-| expr e, hnkBreak, hnkContinue => do
+| expr e, hcont, hcontinue => do
     match kcontinue with
     | some kcontinue =>
         -- todo :: don't discard `e` and use bind
@@ -116,10 +123,10 @@ def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} (kbreak kcontinue : Optio
             fun x hx => (by {
                 simp [toSSAExpr!]
                 cases hnkcontinue : nkcontinue with
-                | none => grind [Option.All₂]
+                | none => grind [Option.All₂, ContinuationPairValid]
                 | some nkcontinue' =>
                     have hcontRef : ContinuationRefines args kmutArgs kmutVars nkcontinue' kcontinue := by
-                        have := hnkContinue.2
+                        have := hcontinue.2
                         simpa [hnkcontinue, Option.All₂] using this
                     have hgoal : some x = SSAExpr.eval args ((SSAExpr.var nkcontinue').app (mkMutTuple kmutVars).1) :=
                         continuationRefines_eq_some hcontRef hx
@@ -132,13 +139,11 @@ def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} (kbreak kcontinue : Optio
                 | none =>
                     simpa [toSSAExpr!, hnkcontinue] using hx.symm
                 | some nkcontinue' =>
-                    simpa [hnkcontinue, Option.All₂] using hnkContinue.2
-| seq s₁ s₂, hnkBreak, hnkContinue => do
+                    simpa [hnkcontinue, Option.All₂] using hcontinue.2
+| seq s₁ s₂, hbreak, hcontinue => do
     let n := freshName (Array.append s₁.mutVars s₂.mutVars) `x
-
-    let ⟨e1, he1⟩ ← s₁.evalRefined kbreak kcontinue nkbreak nkcontinue hMut hcontMutVars halign halignMut halignkMut sorry sorry
-
     -- todo :: don't discard s₁ when using non identity monad
+    let ⟨e1, he1⟩ ← s₁.evalRefined kbreak kcontinue nkbreak nkcontinue hMut hcontMutVars halign halignMut halignkMut sorry sorry
     s₂.evalRefined kbreak kcontinue nkbreak nkcontinue hMut hcontMutVars
         halign
         halignMut halignkMut
@@ -150,7 +155,7 @@ def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} (kbreak kcontinue : Optio
             rw [SSAExpr.eval_letE_bv]
             grind only [= Option.isSome_some]
             grind only [= Option.isSome_some]
-| letE var val rest, hnkBreak, hnkContinue => do
+| letE var val rest, hbreak, hcontinue => do
     if hvar : mutArgs.any (·.1 == var) then
         -- cannot shadow mutVars
         none
@@ -161,7 +166,7 @@ def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} (kbreak kcontinue : Optio
             ⟨sorry, sorry⟩
             ⟨sorry, sorry⟩ |>.subtypeMap
             fun x hx => sorry
-| letM var val rest, hnkBreak, hnkContinue => do
+| letM var val rest, hkbreak, hkcontinue => do
     if hvar : mutArgs.any (·.1 == var) then
         -- cannot shadow mutVars
         none
@@ -175,7 +180,7 @@ def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} (kbreak kcontinue : Optio
             ⟨sorry, sorry⟩
             ⟨sorry, sorry⟩ |>.subtypeMap
             fun x hx => sorry
-| assign var val rest, hnkBreak, hnkContinue => do
+| assign var val rest, hkbreak, hkcontinue => do
     let ⟨idx, hidx⟩ ← ((mutArgs).findFinIdx? (·.1 == var)).attach
     let ⟨val', hval'⟩ ← (val.eval args).attach
     if h : val'.inferType == mutArgs[idx].2.inferType then
@@ -188,7 +193,7 @@ def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} (kbreak kcontinue : Optio
             fun x hx => sorry
     else
         none
-| loop body rest, hnkBreak, hnkContinue => do
+| loop body rest, hkbreak, hkcontinue => do
     let kMutArgs' := mutArgs
     let ⟨kcontinue, hkcontinue⟩ ← kcontinue.attach
     let kcontinue' : { mutArgs' : ArgMap // mutArgs'.equivTypes kMutArgs' } → Option SSAConst :=
@@ -196,26 +201,26 @@ def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} (kbreak kcontinue : Optio
             kcontinue ⟨(kMutArgs'.map (fun (n, _) => (n, (mutArgs'.get n).get!))), sorry⟩
     let nKBreak : Name := freshName (vars.map (·.1) ++ body.vars) `kbreak
     let nKContinue : Name := freshName (vars.map (·.1) ++ body.vars) `kcontinue
-    SSA.loop (⟨mutArgs, sorry⟩ : { mutArgs' : ArgMap // mutArgs'.equivTypes kMutArgs' }) (fun mutArgs' kcont =>
+    SSA.loop (⟨mutArgs, ArgMap.equivTypes_rfl mutArgs⟩ : { mutArgs' : ArgMap // mutArgs'.equivTypes kMutArgs' }) (fun mutArgs' kcont =>
         body.evalRefined (some (fun x => kcont x)) kcontinue' nKBreak nKContinue hMut sorry halign halignMut halignMut
             ⟨sorry, sorry⟩
             ⟨sorry, sorry⟩ |>.subtypeMap sorry
     )
-| .break, hnkBreak, hnkContinue =>
+| .break, hkbreak, hkcontinue =>
     match kbreak with
     | some kbreak' => kbreak' ⟨mutArgs, sorry⟩ |>.attachWith _
         fun x hx => by
             sorry
     | none => none
-| .continue, hnkBreak, hnkContinue =>
+| .continue, hkbreak, hkcontinue =>
     match kcontinue with
     | some kcontinue' => kcontinue' ⟨mutArgs, sorry⟩ |>.attachWith _
         fun x hx => sorry
     | none => none
-| .return out, hnkBreak, hnkContinue =>
+| .return out, hkbreak, hkcontinue =>
     out.eval args |>.attachWith _
         fun x hx => sorry
-| ifthenelse c t e rest, hnkBreak, hnkContinue => do
+| ifthenelse c t e rest, hkbreak, hkcontinue => do
     let kMutArgs' := mutArgs
     let kcontinue' : { x : ArgMap // x.equivTypes kMutArgs' } → Option SSAConst :=
         fun ⟨mutArgs', hmutArgs'⟩ =>
