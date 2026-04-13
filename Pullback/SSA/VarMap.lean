@@ -148,3 +148,5 @@ def ArgMap.submapVars (args : ArgMap) (vars : VarMap) : Prop := Map.submap (args
 def ArgMap.equivVars (args : ArgMap) (vars : VarMap) : Prop := Map.equiv (args.map (fun (name, x) => (name, x.inferType))) vars
 
 def ArgMap.equivTypes (args₁ args₂ : ArgMap) : Prop := args₁.map (fun x => (x.1, x.2.inferType)) = args₂.map (fun x => (x.1, x.2.inferType))
+
+theorem ArgMap.equivTypes_rfl (args: ArgMap) : args.equivTypes args := sorry

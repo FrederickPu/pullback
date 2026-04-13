@@ -265,6 +265,12 @@ def DVector.get : {L : List Type} → (v : DVector L) → (i : Fin L.length) →
 | .cons _ _, (a, _), ⟨0, _⟩ => a
 | .cons _ _, (_, as), ⟨Nat.succ i, h⟩ => DVector.get as ⟨i, Nat.le_of_succ_le_succ h⟩
 
+theorem Array.findLast?_map {α β : Type u} (f : α → β) (p : β → Bool) (as : Array α) :
+    (as.map f).findLast? p = (as.findLast? (p ∘ f)).map f := by
+  simp only [findLast?]
+  rcases as with ⟨xs⟩
+  simp [← List.map_reverse, List.find?_map]
+
 theorem Array.find?_eq_getElem_findFinIdx? {α : Type u} (xs : Array α) (p : α → Bool) :
       xs.find? p = (xs.findFinIdx? p).map (xs[·]) := by
     rcases xs with ⟨xs⟩; ext

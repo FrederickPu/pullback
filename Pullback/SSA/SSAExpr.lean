@@ -372,14 +372,30 @@ theorem SSAExpr.eval_letE
     (SSAExpr.letE name val body).eval args = body.eval (args.push (name, v)) := by
     exact SSAExpr.eval_letE_push_of_eval args name val body v hval
 
-theorem SSAExpr.eval_letE_fresh
+/-
+  letE does nothing if the variable is already bound in the body expression
+-/
+theorem SSAExpr.eval_letE_bv
     (args : Array (Name × SSAConst))
     (name : Name)
     (val body : SSAExpr)
-    (v : SSAConst)
-    (hval : val.eval args = some v) :
-    (SSAExpr.letE name val body).eval args = body.eval (args.push (name, v)) :=
-    SSAExpr.eval_letE args name val body v hval
+    (hval : (val.eval args).isSome)
+    (hbody : (body.eval args).isSome) :
+    (SSAExpr.letE name val body).eval args = body.eval args :=
+    sorry
+theorem SSAExpr.eval_var (args : ArgMap) (name : Name) :
+    (SSAExpr.var name).eval args = Map.get args name := by
+    sorry
+
+theorem SSAExpr.eval_app
+    (args : ArgMap)
+    (varName : Name) (varType : SSAType) (body x : SSAExpr)
+    (xv : SSAConst)
+    (hx : x.eval args = some xv)
+    (hdom : varType = xv.inferType) :
+    (SSAExpr.app (.lam varName varType body) x).eval args =
+        body.eval (args.push (varName, xv)) := by
+    sorry
 
 theorem SSAExpr.eval_isSome_inferType_eq (vars : VarMap) (args : Array (Name × SSAConst))
     (expr : SSAExpr) (v : SSAConst)

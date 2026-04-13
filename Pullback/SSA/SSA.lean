@@ -77,7 +77,7 @@ instance (args : ArgMap) : Inhabited { args' : ArgMap // args'.equivTypes args }
 
 -- Helper lemmas for seq branch alignment/refinement threading
 
-theorem ArgMap.equivTypes_equivVars_trans 
+theorem ArgMap.equivTypes_equivVars_trans
     {args₁ args₂ : ArgMap} {vars : VarMap}
     (h₁ : args₁.equivTypes args₂)
     (h₂ : args₂.equivVars vars) :
@@ -92,21 +92,6 @@ theorem ArgMap.equivTypes_preserves_submapVars
     mutArgs'.submapVars vars := by
   simp [ArgMap.submapVars, ArgMap.equivTypes] at h_equiv h_submap ⊢
   rw [h_equiv]; exact h_submap
-
--- ContinuationRefines does not depend on the args parameter for its validity
--- (continuations only operate on kmutArgs which is fixed)
-theorem ContinuationRefines_args_independent
-    {args args' : ArgMap}
-    {kmutArgs : ArgMap}
-    {kmutVars : VarMap}
-    {nk : Name}
-    {k : { mutArgs' : ArgMap // mutArgs'.equivTypes kmutArgs } → Option SSAConst}
-    (href : ContinuationRefines args kmutArgs kmutVars nk k) :
-    ContinuationRefines args' kmutArgs kmutVars nk k := by
-  -- ContinuationRefines is defined in terms of evaluating SSAExpr with the args parameter,
-  -- but the continuation k doesn't actually depend on which args we use as long as the
-  -- mutable state (kmutArgs) remains constant. This requires reasoning about SSAExpr.eval.
-  sorry
 
 #check Option.All₂
 -- todo :: add hyps for alignment between the continutations in name and function form (kbreak and nkbreak)
@@ -151,83 +136,20 @@ def SSADo.evalRefined {args mutArgs kmutArgs : ArgMap} (kbreak kcontinue : Optio
 | seq s₁ s₂, hnkBreak, hnkContinue => do
     let n := freshName (Array.append s₁.mutVars s₂.mutVars) `x
 
-    -- Construct the continuation that chains into s₂
-    -- This continuation keeps the same kmutArgs (from outer seq context)
-    let kcontinueForS₁ : Option ({mutArgs' : ArgMap // mutArgs'.equivTypes kmutArgs} → Option SSAConst) :=
-      some (fun ⟨mutArgs', hmutArgs'⟩ => do
-        -- s₂ runs with the full outer continuations and the mutated mutArgs'
-        have hnkBreakS₂ : nkbreak.All (s₂.validContinutationRef vars mutVars kmutVars) := by
-          cases nkbreak with
-          | none => simp [Option.All]
-          | some k =>
-              have hkSeq : (SSADo.seq s₁ s₂).validContinutationRef vars mutVars kmutVars k := by
-                simpa [Option.All] using hnkBreak.1
-              rcases hkSeq with ⟨hNotMut, hDom, hNotVarsSeq⟩
-              have hNotVarsSplit : k ∉ s₁.vars ∧ k ∉ s₂.vars := by
-                simpa [SSADo.vars, Array.mem_append] using hNotVarsSeq
-              have hkS₂ : s₂.validContinutationRef vars mutVars kmutVars k :=
-                ⟨hNotMut, hDom, hNotVarsSplit.2⟩
-              simpa [Option.All] using hkS₂
-        have hnkContinueS₂ : nkcontinue.All (s₂.validContinutationRef vars mutVars kmutVars) := by
-          cases nkcontinue with
-          | none => simp [Option.All]
-          | some k =>
-              have hkSeq : (SSADo.seq s₁ s₂).validContinutationRef vars mutVars kmutVars k := by
-                simpa [Option.All] using hnkContinue.1
-              rcases hkSeq with ⟨hNotMut, hDom, hNotVarsSeq⟩
-              have hNotVarsSplit : k ∉ s₁.vars ∧ k ∉ s₂.vars := by
-                simpa [SSADo.vars, Array.mem_append] using hNotVarsSeq
-              have hkS₂ : s₂.validContinutationRef vars mutVars kmutVars k :=
-                ⟨hNotMut, hDom, hNotVarsSplit.2⟩
-              simpa [Option.All] using hkS₂
-        -- args is immutable, so alignment and continuation refinements carry through unchanged
-        let ⟨x₂, hx₂⟩ ← s₂.evalRefined kbreak kcontinue nkbreak nkcontinue hMut hcontMutVars
-            halign halignMut halignkMut
-            ⟨hnkBreakS₂, hnkBreak.2⟩
-            ⟨hnkContinueS₂, hnkContinue.2⟩
-        pure x₂)
+    let ⟨e1, he1⟩ ← s₁.evalRefined kbreak kcontinue nkbreak nkcontinue hMut hcontMutVars halign halignMut halignkMut sorry sorry
 
-    -- Call s₁ with kcontinueForS₁ as its continuation
-    have hnkBreakS₁ : nkbreak.All (s₁.validContinutationRef vars mutVars kmutVars) := by
-      cases nkbreak with
-      | none => simp [Option.All]
-      | some k =>
-          have hkSeq : (SSADo.seq s₁ s₂).validContinutationRef vars mutVars kmutVars k := by
-            simpa [Option.All] using hnkBreak.1
-          rcases hkSeq with ⟨hNotMut, hDom, hNotVarsSeq⟩
-          have hNotVarsSplit : k ∉ s₁.vars ∧ k ∉ s₂.vars := by
-            simpa [SSADo.vars, Array.mem_append] using hNotVarsSeq
-          have hkS₁ : s₁.validContinutationRef vars mutVars kmutVars k :=
-            ⟨hNotMut, hDom, hNotVarsSplit.1⟩
-          simpa [Option.All] using hkS₁
-    have hnkContinueS₁ : nkcontinue.All (s₁.validContinutationRef vars mutVars kmutVars) := by
-      cases nkcontinue with
-      | none => simp [Option.All]
-      | some k =>
-          have hkSeq : (SSADo.seq s₁ s₂).validContinutationRef vars mutVars kmutVars k := by
-            simpa [Option.All] using hnkContinue.1
-          rcases hkSeq with ⟨hNotMut, hDom, hNotVarsSeq⟩
-          have hNotVarsSplit : k ∉ s₁.vars ∧ k ∉ s₂.vars := by
-            simpa [SSADo.vars, Array.mem_append] using hNotVarsSeq
-          have hkS₁ : s₁.validContinutationRef vars mutVars kmutVars k :=
-            ⟨hNotMut, hDom, hNotVarsSplit.1⟩
-          simpa [Option.All] using hkS₁
-    -- For the wrapped continuation kcontinueForS₁, we need a witness that it refines correctly
-    -- This is deferred as it requires reasoning about s₂'s semantics
-    let hcontinueForS₁ : Option.All₂ (fun nk kc => ContinuationRefines args kmutArgs kmutVars nk kc) nkcontinue kcontinueForS₁ := sorry
-    s₁.evalRefined kbreak kcontinueForS₁ nkbreak nkcontinue hMut hcontMutVars
+    -- todo :: don't discard s₁ when using non identity monad
+    s₂.evalRefined kbreak kcontinue nkbreak nkcontinue hMut hcontMutVars
         halign
         halignMut halignkMut
-        ⟨hnkBreakS₁, hnkBreak.2⟩
-        ⟨hnkContinueS₁, hcontinueForS₁⟩ |>.subtypeMap
+        sorry
+        sorry |>.subtypeMap
         fun x hx => by
-            -- x is the result from s₁.evalRefined, which means:
-            -- x equals (s₁.toSSAExpr! ...).eval args
-            -- We need to show this equals (seq s₁ s₂).toSSAExpr! ... eval args
-            -- By definition, seq's toSSAExpr! is letE (freshName...) s₁ s₂
-            -- which evaluates as binding s₁'result and then evaluating s₂
-            -- This requires connecting s₁'s semantics through the wrapped continuation
-            sorry
+            rw [hx]
+            simp [toSSAExpr!]
+            rw [SSAExpr.eval_letE_bv]
+            grind only [= Option.isSome_some]
+            grind only [= Option.isSome_some]
 | letE var val rest, hnkBreak, hnkContinue => do
     if hvar : mutArgs.any (·.1 == var) then
         -- cannot shadow mutVars
