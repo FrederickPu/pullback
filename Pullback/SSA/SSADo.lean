@@ -39,39 +39,39 @@ def SSADo.vars : SSADo → Array Name
 | .return _ => #[]
 | ifthenelse _ t e rest => t.vars ++ e.vars ++ rest.vars
 
-def SSADo.toSSAExpr! (vars : VarMap) (mutVars : VarMap) (kMutVars : VarMap) (kbreak kcontinue : Option Name) : SSADo → SSAExpr
+#check mkMutTuple
+def SSADo.toSSAExpr! (vars : VarMap) (mutVars : VarMap) (kMutVars : VarMap) (kbreak kcontinue k : Option Name) (ktype : SSAType) : SSADo → SSAExpr
 -- note: only trailing exprs are interpreted as return types
 -- ie: `do if cond then 10 else 10` is invalid but `do if cond then return 10 else (); 10` is valid
 | expr e =>
-    match kcontinue with
-    | some kcontinue =>
+    match k with
+    | some k' =>
         -- todo :: don't discard `e` and use bind
-        SSAExpr.app (SSAExpr.var kcontinue) (mkMutTuple kMutVars).1
+        SSAExpr.app (SSAExpr.var k') (mkMutTuple kMutVars).1
     | none => e
-| seq s₁ s₂ => SSAExpr.letE (freshName (Array.append s₁.mutVars s₂.mutVars) `x) (s₁.toSSAExpr! vars mutVars kMutVars kbreak kcontinue) (s₂.toSSAExpr! vars mutVars kMutVars kbreak kcontinue)
+| seq s₁ s₂ => SSAExpr.letE (freshName (Array.append s₁.mutVars s₂.mutVars) `x) (s₁.toSSAExpr! vars mutVars kMutVars kbreak kcontinue k ktype) (s₂.toSSAExpr! vars mutVars kMutVars kbreak kcontinue k ktype)
 | letE var val rest =>
     let valT := val.inferType! vars
-    SSAExpr.letE var val (rest.toSSAExpr! (vars.push (var, valT)) mutVars kMutVars kbreak kcontinue)
+    SSAExpr.letE var val (rest.toSSAExpr! (vars.push (var, valT)) mutVars kMutVars kbreak kcontinue k ktype)
 | letM var val rest =>
     let valT := val.inferType! vars
-    SSAExpr.letE var val (rest.toSSAExpr! (vars.push (var, valT)) (mutVars.push (var, valT)) kMutVars kbreak kcontinue)
+    SSAExpr.letE var val (rest.toSSAExpr! (vars.push (var, valT)) (mutVars.push (var, valT)) kMutVars kbreak kcontinue k ktype)
 | assign var val rest =>
     let valT := val.inferType! vars
-    SSAExpr.letE var val (rest.toSSAExpr! (vars.push (var, valT)) mutVars kMutVars kbreak kcontinue)
+    SSAExpr.letE var val (rest.toSSAExpr! (vars.push (var, valT)) mutVars kMutVars kbreak kcontinue k ktype)
 | loop body rest =>
     let (mutTuple, mutTupleType) := (mkMutTuple mutVars)
     let bodyMutVars : Array Name  := body.mutVars
     let nS : Name := freshName (Array.append (mutVars.map (·.1)) bodyMutVars) `s
-    let restExpr := rest.toSSAExpr! vars mutVars kMutVars kbreak kcontinue
+    let restExpr := rest.toSSAExpr! vars mutVars kMutVars kbreak kcontinue kcontinue ktype
     let breakNew : SSAExpr := SSAExpr.lam nS mutTupleType <| (destructMutTuple nS mutVars restExpr)
     let nKBreak : Name := freshName (vars.map (·.1) ++ body.vars) `kbreak
     let nKContinue : Name := freshName (vars.map (·.1) ++ body.vars) `kcontinue
     -- todo :: modify mutvars passed into toSSAExpr for body
-    let bodyExpr := body.toSSAExpr! vars mutVars mutVars nKBreak nKContinue
-    let bodyType := bodyExpr.inferType! vars
+    let bodyExpr := body.toSSAExpr! (vars ++ #[(nKBreak, .fun mutTupleType ktype), (nKContinue, .fun mutTupleType ktype)]) mutVars mutVars nKBreak nKContinue k ktype
     let body' : SSAExpr := destructMutTuple nS mutVars bodyExpr
     SSAExpr.letE nKBreak breakNew <|
-        SSAExpr.app (SSAExpr.app (SSAExpr.const (SSAConst.loop mutTupleType bodyType)) mutTuple) (SSAExpr.lam nKContinue (SSAType.fun mutTupleType (SSAType.ofBase .unit)) (SSAExpr.lam nS mutTupleType body'))
+        SSAExpr.app (SSAExpr.app (SSAExpr.const (SSAConst.loop mutTupleType ktype)) mutTuple) (SSAExpr.lam nKContinue (SSAType.fun mutTupleType (SSAType.ofBase .unit)) (SSAExpr.lam nS mutTupleType body'))
 | .break =>
     match kbreak with
     | some kbreak' =>
@@ -88,212 +88,154 @@ def SSADo.toSSAExpr! (vars : VarMap) (mutVars : VarMap) (kMutVars : VarMap) (kbr
     out
 | ifthenelse cond t e rest =>
     let (_, mutTupleType) := (mkMutTuple mutVars)
-    let nKContinue : Name := freshName ((vars.map (·.1) ++ t.vars ++ e.vars)) `kcontinue
+    let nKContinue : Option Name := kcontinue.map (fun _ => freshName ((vars.map (·.1) ++ t.vars ++ e.vars)) `kcontinue)
     let restMutVars : Array Name := rest.mutVars
     let nS : Name := freshName (Array.append (mutVars.map (·.1)) restMutVars) `s
     -- todo :: pass expanded mutvars into toSSAExpr
-    let restExpr := rest.toSSAExpr! vars mutVars kMutVars kbreak kcontinue
-    let restType := restExpr.inferType! vars
-    let continue' := (SSAExpr.lam nS mutTupleType <| destructMutTuple nS mutVars restExpr)
+    let restExpr := rest.toSSAExpr! vars mutVars kMutVars kbreak kcontinue k ktype
+    -- route to outer continutation (from while loop)
+    let continue' := (SSAExpr.lam nS mutTupleType <| destructMutTuple nS mutVars (mkMutTuple kMutVars).1)
 
     let nKBreak : Option Name := kbreak.map (fun _ => freshName ((vars.map (·.1) ++ t.vars ++ e.vars)) `kbreak)
-    let kbreak' := (SSAExpr.lam nS mutTupleType <| destructMutTuple nS mutVars restExpr)
+    -- route to outer continutation (from while loop)
+    let kbreak' := (SSAExpr.lam nS mutTupleType <| destructMutTuple nS mutVars (mkMutTuple kMutVars).1)
 
-    let vars' := match nKBreak with
-    | some x => (vars.push (x, .fun mutTupleType restType))
-    | _ => vars
+    let nkif := freshName ((vars.map (·.1) ++ t.vars ++ e.vars)) `kif
+    let kif := (SSAExpr.lam nS mutTupleType <| destructMutTuple nS mutVars restExpr)
 
-    let texpr := t.toSSAExpr! vars' mutVars mutVars nKBreak nKContinue
-    let tExprType := texpr.inferType! vars'
-    let eExpr := e.toSSAExpr! vars' mutVars mutVars nKBreak nKContinue
-    let base := SSAExpr.letE nKContinue continue' <|
+    let vars' := vars.push (nkif, .fun mutTupleType ktype)
+    let vars'' := match nKBreak with
+    | some x => (vars'.push (x, .fun mutTupleType ktype))
+    | _ => vars'
+
+    let vars''' := match nKContinue with
+    | some x => vars''.push (x, .fun mutTupleType ktype)
+    | none => vars''
+
+    let texpr := t.toSSAExpr! vars''' mutVars mutVars nKBreak nKContinue nkif ktype
+    let tExprType := texpr.inferType! vars'''
+    let eExpr := e.toSSAExpr! vars''' mutVars mutVars nKBreak nKContinue nkif ktype
+    let base := SSAExpr.letE nkif kif <|
     SSAExpr.app (SSAExpr.app (SSAExpr.app (.const (.ifthenelse tExprType)) cond) texpr) (eExpr)
-    match nKBreak with
+   let base' := match nKBreak with
     | some x => SSAExpr.letE x kbreak' base
     | _ => base
 
--- note: `kcontinue` doubles both as for jumping to next loop iteration and for invoking rest of the program
--- eg in `if c then t else e; rest` the `kcontinue` gets invoked after evaluating `t` to "jump" to `rest`
--- however the `continue` keyword in do notation is reserved for loop bodys
--- mutArgs are the mutargs for the current scope and kMutArgs are the mut args for the calling scope. Thefore, continutations are called with kmutArgs and kmutArgs are always prefix of mutArgs.
-def SSADo.eval (args mutArgs kMutArgs : ArgMap) (kbreak kcontinue : Option (ArgMap → Option SSAConst)) : SSADo → Option SSAConst
-| expr e =>
-    match kcontinue with
-    | some kcontinue =>
-        -- todo :: don't discard `e` and use bind
-        kcontinue kMutArgs
-    | none => e.eval args
-| seq s₁ s₂ => do
-    let x ← (s₁.eval args mutArgs kMutArgs kbreak kcontinue)
-    s₂.eval args mutArgs kMutArgs kbreak kcontinue
-| letE var val rest => do
-    if mutArgs.any (·.1 == var) then
-        -- cannot shadow mutVars
-        none
-    rest.eval (args.push (var, ← val.eval args)) mutArgs kMutArgs kbreak kcontinue
-| letM var val rest => do
-    if mutArgs.any (·.1 == var) then
-        -- cannot shadow mutVars
-        none
-    let val' ← val.eval args
-    rest.eval (args.push (var, val')) (mutArgs.push (var, val')) kMutArgs kbreak kcontinue
-| assign var val rest => do
-    let idx ← (mutArgs).findFinIdx? (·.1 == var)
-    let val' ← val.eval args
-    if val'.inferType == mutArgs[idx].2.inferType then
-        rest.eval args (mutArgs.set idx (var, val')) kMutArgs kbreak kcontinue
+    match nKContinue with
+    | some x => SSAExpr.letE x continue' base'
+    | none => base'
+
+def SSADo.inferType (vars : VarMap) (mutVars kmutVars : Array Name) (hasBreak : Bool) (hasContinue : Bool) (hasK : Bool) (continutationType : Option SSAType) : SSADo → Option SSAType
+| expr e => do
+    let et ← e.inferType vars
+    if hasK then
+        if et = .ofBase .unit then
+            continutationType
+        else
+            none
     else
+        return et
+| seq s₁ s₂ => do
+    let _ ← s₁.inferType vars mutVars kmutVars hasBreak hasContinue hasK continutationType
+    s₂.inferType vars mutVars kmutVars hasBreak hasContinue hasK continutationType
+| letE var val rest => do
+    if mutVars.any (· == var) then
+        -- cannot shadow mutVars
+        none
+    rest.inferType (vars.push (var, ← val.inferType vars)) mutVars kmutVars hasBreak hasContinue hasK continutationType
+| letM var val rest => do
+    if mutVars.any (· == var) then
+        -- cannot shadow mutVars
+        none
+    let valT ← val.inferType vars
+    rest.inferType (vars.push (var, valT)) (mutVars.push var) kmutVars hasBreak hasContinue hasK continutationType
+| assign var val rest => do
+    let valT ← val.inferType vars
+    if valT == vars.get var then
+        rest.inferType (vars.push (var, valT)) mutVars kmutVars hasBreak hasContinue hasK continutationType
+    else
+        -- mut var type can never change
         none
 | loop body rest => do
-    let kMutArgs' := mutArgs
-    let kcontinue ← kcontinue
-    let kcontinue' :=
-        fun mutArgs' : Array (Name × SSAConst) =>
-            kcontinue (kMutArgs'.map (fun (n, _) => (n, (mutArgs'.findLast? (·.1 == n)).get!.2)))
-    SSA.loop mutArgs (fun mutArgs' kcont =>
-        body.eval (args ++ mutArgs') mutArgs' kMutArgs' kcontinue' kcont)
+    let restT ← rest.inferType vars mutVars kmutVars hasBreak hasContinue hasK continutationType
+    let bodyT ← body.inferType vars mutVars mutVars true true true restT
+    if bodyT = restT then
+        return bodyT
+    else
+        none
 | .break =>
-    match kbreak with
-    | some kbreak' => kbreak' mutArgs
-    | none => none
+    if hasBreak then
+        continutationType
+    else
+        none
 | .continue =>
-    match kcontinue with
-    | some kcontinue' => kcontinue' mutArgs
-    | none => none
-| .return out =>
-    out.eval args
-| ifthenelse c t e rest => do
-    let kMutArgs' := mutArgs
-    let kcontinue' :=
-        fun mutArgs' : Array (Name × SSAConst) =>
-            let mutArgsNew : Array (Name × SSAConst) := (kMutArgs'.map (fun (n, _) => (n, (mutArgs'.findLast? (·.1 == n)).get!.2)))
-            rest.eval (args ++ mutArgsNew) mutArgsNew mutArgsNew kbreak kcontinue
-    match ← c.eval args with
-    | .ofBase (.int ci) =>
-        if ci != 0 then
-            t.eval args mutArgs kMutArgs' kbreak kcontinue'
-        else
-            e.eval args mutArgs kMutArgs' kbreak kcontinue'
-    | _ => none
+    if hasBreak then
+        continutationType
+    else
+        none
+| .return out => do
+    let outT ← out.inferType vars
+    match continutationType with
+    | some ct => if ct == outT then return outT else none
+    | none => return outT
+| ifthenelse cond t e rest => do
+    if (← cond.inferType vars) != .ofBase .int then
+        none
+    let restT ← rest.inferType vars mutVars kmutVars hasBreak hasContinue hasK continutationType
+    let tT ← t.inferType vars mutVars kmutVars hasBreak hasContinue hasK restT
+    if tT != restT then
+        none
+    let tE ← e.inferType vars mutVars kmutVars hasBreak hasContinue hasK restT
+    if tE != restT then
+        none
+    return restT
 
-/-
-    name `k` referes to a valid continutation for the current mutvars
--/
-def SSADo.validContinutationRef (vars mutVars continueMutVars : VarMap) (k : Name) (prog : SSADo) := ¬ mutVars.any (·.1 = k) ∧ (do pure <| (← vars.get k).funDom? = (mkMutTuple continueMutVars).2) = some true ∧ k ∉ prog.vars
-
-def ArgMap.validContinutation (kmutArgs : ArgMap) (k : ArgMap → Option SSAConst) :=
-    ∀ mutArgs' : ArgMap,
-        mutArgs'.map (fun x => (x.1, x.2.inferType)) = kmutArgs.map (fun x => (x.1, x.2.inferType)) →
-            (k mutArgs').isSome
-
-def Option.All (p : α → Prop) (x : Option α) : Prop :=
+def Option.All {α} (p : α → Prop) (x : Option α) : Prop :=
     match x with
     | some x => p x
     | none => True
 
-theorem SSADo.validContinutationRef_push_of_not_mut (vars : VarMap) (mutVars : VarMap) (continueMutVars : VarMap) (k knew: Name) (prog : SSADo) (ktype : SSAType) (hk : vars.get k = some ktype) (hknew : ∀ var ∈ vars, var.1 ≠ knew) (hknew₁ : knew ∉ prog.vars) (var : Name) (hknew' : knew ≠ var) (varType : SSAType) (hMut₂ : mutVars.toList ⊆ vars.toList) : (SSADo.validContinutationRef vars mutVars continueMutVars k prog) → (SSADo.validContinutationRef ((vars.push (knew, ktype)).push (var, varType)) mutVars continueMutVars knew prog) := by
-    intro H
-    simp only [validContinutationRef, Array.any_eq_true, decide_eq_true_eq, not_exists,
-      Option.pure_def, Option.bind_eq_bind, Option.bind_eq_some_iff, Option.some.injEq] at H
-    refine ⟨?_, ?_, ?_⟩
-    · simp only [Array.any_eq_true, decide_eq_true_eq, not_exists]
-      intro i hi
-      apply hknew
-      rw [List.subset_def] at hMut₂
-      have := @hMut₂ mutVars[i] (by grind)
-      simp only [Array.mem_toList_iff] at this
-      grind only [= Array.mem_push, = Array.mem_map]
-    · have := Map.get_push (α := Name) (β := SSAType)
-      simp only [Prod.forall] at this
-      simp only [this, ↓reduceIte, Option.pure_def, Option.bind_eq_bind]
-      cases em (var = knew) with
-      | inl hl =>
-        grind
-      | inr hr =>
-        simp only [hr, ↓reduceIte, Option.bind_some, Option.some.injEq, decide_eq_true_eq]
-        obtain ⟨a, ha⟩ := H.2
-        grind only
-    · exact hknew₁
+/-
+    name `k` referes to a valid continutation for the current mutvars
+-/
+def SSADo.validContinuationRef (vars mutVars continueMutVars : VarMap) (prog : SSADo) (ktype : SSAType) (k : Name) := ¬ mutVars.any (·.1 = k) ∧ (do pure <| (← vars.get k) = .fun (mkMutTuple continueMutVars).2 ktype) = some true ∧ k ∉ prog.vars
 
-theorem SSADo.toSSAExpr!_vars_equiv
-    {vars₁ vars₂ mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
-    (hvars : Map.equiv vars₁ vars₂) :
-    {rest : SSADo} →
-    (rest.toSSAExpr! vars₁ mutVars kMutVars kbreak kcontinue) =
-    (rest.toSSAExpr! vars₂ mutVars kMutVars kbreak kcontinue)
-| expr x => by
-    simp [toSSAExpr!]
-| letE varName val body => by
-    simp only [toSSAExpr!, SSAExpr.letE.injEq, true_and]
-    apply SSADo.toSSAExpr!_vars_equiv
-    have : SSAExpr.inferType! vars₁ val = SSAExpr.inferType! vars₂ val :=
-      SSAExpr.inferType!_eq_of_vars_equiv hvars
-    rw [this]
-    exact Map.equiv_push vars₁ vars₂ hvars varName (SSAExpr.inferType! vars₂ val)
-| letM varName val body => by
-    simp only [toSSAExpr!, SSAExpr.letE.injEq, true_and]
-    have : SSAExpr.inferType! vars₁ val = SSAExpr.inferType! vars₂ val :=
-      SSAExpr.inferType!_eq_of_vars_equiv hvars
-    rw [this]
-    apply toSSAExpr!_vars_equiv
-    exact Map.equiv_push vars₁ vars₂ hvars varName (SSAExpr.inferType! vars₂ val)
-| assign varname val body => by
-    simp [toSSAExpr!]
-    apply SSADo.toSSAExpr!_vars_equiv
-    have : SSAExpr.inferType! vars₁ val = SSAExpr.inferType! vars₂ val :=
-      SSAExpr.inferType!_eq_of_vars_equiv hvars
-    rw [this]
-    exact Map.equiv_push vars₁ vars₂ hvars varname (SSAExpr.inferType! vars₂ val)
-| .return out => by simp [toSSAExpr!]
-| .break => by simp [toSSAExpr!]
-| .continue => by simp [toSSAExpr!]
-| seq s₁ s₂ => by
-    simp [toSSAExpr!]
-    apply And.intro
-    · exact toSSAExpr!_vars_equiv hvars
-    · exact toSSAExpr!_vars_equiv hvars
-| loop body rest => by
-    simp [toSSAExpr!]
-    have : freshName (Array.map (fun x => x.1) vars₁ ++ body.vars) =
-    freshName (Array.map (fun x => x.1) vars₂ ++ body.vars) := sorry
-    simp [this]
-    simp [toSSAExpr!_vars_equiv hvars, SSAExpr.inferType!_eq_of_vars_equiv hvars]
-| ifthenelse c t e rest => by
-    have hfresh :
-        freshName (Array.map (fun x => x.1) vars₁ ++ (t.vars ++ e.vars)) =
-        freshName (Array.map (fun x => x.1) vars₂ ++ (t.vars ++ e.vars)) := by
+structure validVars (vars mutVars kmutVars : VarMap) : Prop where
+  hMut₁ : mutVars.uniqueKeys
+  hMut₂ : mutVars.submap vars
+  hcontMutVars : kmutVars.isPrefixOf mutVars
+
+#check mkMutTuple
+def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option Name) (ktype : Option SSAType) (hvalidVars : validVars vars mutVars kmutVars) :
+    (prog : SSADo) →
+    (hprog : prog.inferType vars mutVars.keys kmutVars.keys kbreak.isSome kcontinue.isSome k.isSome ktype |>.isSome) →
+    let ktype := (prog.inferType vars mutVars.keys kmutVars.keys kbreak.isSome kcontinue.isSome k.isSome ktype).get hprog;
+    kbreak.All (validContinuationRef vars mutVars kmutVars prog ktype) →
+    kcontinue.All (validContinuationRef vars mutVars kmutVars prog ktype) →
+    k.All (validContinuationRef vars mutVars kmutVars prog ktype) → DVector (Array.toList (vars.map (·.2.type))) →
+    ktype.type
+| expr e, hprog, hkbreak, hkcontinue, hk, args =>
+    have he : (e.inferType vars).isSome := by sorry
+    match k with
+    | some k' =>
+        have : (e.inferType vars).get he = .ofBase .unit := by grind [inferType]
+        have hkRef : (vars.findLastFinIdx? (·.1 == k')).isSome := sorry
+        let kfun := cast (β := (mkMutTuple kmutVars).2.type → (ktype.get (by grind [inferType])).type)
             sorry
-    match kbreak with
-    | some kbreak' =>
-        have hEqPush : ∀ kb τ, Map.equiv (Array.push vars₁ (kb, τ)) (Array.push vars₂ (kb, τ)) :=
-        Map.equiv_push vars₁ vars₂ hvars
-        simp [toSSAExpr!]
-        simp [hfresh]
-        simp [toSSAExpr!_vars_equiv hvars, toSSAExpr!_vars_equiv (hEqPush _ _), SSAExpr.inferType!_eq_of_vars_equiv hvars, SSAExpr.inferType!_eq_of_vars_equiv (hEqPush _ _)]
+            (args.get (cast (by grind) ((vars.findLastFinIdx? (·.1 == k')).get hkRef)))
+        cast sorry <|
+            kfun (cast sorry ((mkMutTuple kmutVars).1.interp vars sorry args))
     | none =>
-        have hEqPush : ∀ kb τ, Map.equiv (Array.push vars₁ (kb, τ)) (Array.push vars₂ (kb, τ)) :=
-        Map.equiv_push vars₁ vars₂ hvars
-        simp [toSSAExpr!]
-        simp [hfresh]
-        simp [toSSAExpr!_vars_equiv hvars, SSAExpr.inferType!_eq_of_vars_equiv hvars]
-
-theorem SSADo.toSSAExpr_var_push
-    {vars mutVars kMutVars : VarMap} {kbreak kcontinue : Option Name}
-    {var : Name} {val : SSAExpr} {rest : SSADo} :
-    (hvar_type : vars.get var = some (val.inferType! vars)) →
-    (rest.toSSAExpr! (vars.push (var, val.inferType! vars)) mutVars kMutVars kbreak kcontinue) =
-    (rest.toSSAExpr! vars mutVars kMutVars kbreak kcontinue) := by
-    intro hvar_type
-    have hpush_equiv : Map.equiv (vars.push (var, val.inferType! vars)) vars := by
-        apply Map.equiv_symm
-        apply  Map.equiv_push_of_shadow
-        grind
-    simpa using SSADo.toSSAExpr!_vars_equiv
-        (vars₁ := (vars.push (var, val.inferType! vars)))
-        (vars₂ := vars)
-        (mutVars := mutVars)
-        (kMutVars := kMutVars)
-        (kbreak := kbreak)
-        (kcontinue := kcontinue)
-        (rest := rest)
-        hpush_equiv
+        cast (by grind [inferType]) (e.interp vars he args)
+        -- cast (by grind [inferType]) ((base.interp vars) (by grind [inferType]) args)
+| seq s₁ s₂, hprog, hkbreak, hkcontinue, hk, args =>
+    have hs₁ : (s₁.inferType vars mutVars.keys kmutVars.keys kbreak.isSome kcontinue.isSome k.isSome ktype).isSome := by
+        grind [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff]
+    have hs₂ : (s₂.inferType vars mutVars.keys kmutVars.keys kbreak.isSome kcontinue.isSome k.isSome ktype).isSome := by
+        grind [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff]
+    let _ := s₁.interp vars mutVars kmutVars kbreak kcontinue k ktype hvalidVars hs₁ sorry sorry sorry args
+    cast (by grind [inferType]) (s₂.interp vars mutVars kmutVars kbreak kcontinue k ktype hvalidVars hs₂ sorry sorry sorry args)
+-- | letE var val rest, hprog, hkbreak, hkcontinue, hk, args =>
+--     have hval : (val.inferType vars).isSome := by grind [inferType]
+--     have : rest.inferType (vars.push (var, (val.inferType vars).get hval)) mutVars kmutVars kbreak.isSome kcontinue.isSome
+| _, _, _, _, _, _ => sorry
