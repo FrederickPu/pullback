@@ -215,7 +215,7 @@ abbrev ArgMap := Map Name SSAConst
 /-
  evaluate an expression that has no `lam, letE, var`, just `.const, .app`
 -/
-def SSAExpr.evalConsts (args : ArgMap) :  SSAExpr → Option SSAConst
+def SSAExpr.evalConsts (args : ArgMap) : SSAExpr → Option SSAConst
 | .app (.app (.const .or) x) y => do
     match ← x.evalConsts args, ← y.evalConsts args with
     | .ofBase (.int xi), .ofBase (.int yi) =>
@@ -251,6 +251,9 @@ def DVector : List Type → Type
 | [] => Unit
 | α::l => α × DVector l
 
+
+instance (l : List SSAType) : Inhabited (DVector (l.map (·.type))) := sorry
+
 def DVector.cons {L: List Type} {α : Type} : α → DVector L → DVector (α::L)
 | a, l => (a, l)
 
@@ -258,6 +261,7 @@ def DVector.push : {L: Array Type} → {α : Type} → DVector L.toList → α �
 | ⟨[]⟩, α, _, a => (a, ())
 | ⟨l::ls⟩, α, (x, xs), a => DVector.cons x <| DVector.push xs a
 
+def Array.mapDVector (l : Array α) (f : α → Type) (f' : (a : α) → f a) : DVector (l.map f).toList := sorry
 /-
     recursive structure follows List.get exactly
 -/
