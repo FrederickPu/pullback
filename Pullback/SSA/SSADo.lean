@@ -321,22 +321,20 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
         apply Option.All_intro
         intro kX' hkX'
         simp [hkX', Option.All] at hkX
-        refine ⟨hkX.1, ?_, by {
-            have := hkX.2.2
-            simp only [SSADo.vars, Array.append_eq_append, Array.mem_append, mem_toArray, mem_cons,
+        refine ⟨hkX.1, ?_, ?_⟩
+        · have := hkX.2.1
+          simp [Option.Any] at this
+          have hget : Map.get (Array.push vars (var, (SSAExpr.inferType vars val).get hval)) kX' = vars.get kX' := by
+              rw [Map.get_push]
+              simp only [Option.some_get, ite_eq_right_iff]
+              have := hkX.2.2; simp [SSADo.vars] at this; grind
+          simp [Option.Any, hget]
+          have : Map.get vars kX' = (Map.get vars kX').get (by grind) := by grind
+          grind
+        · have := hkX.2.2
+          simp only [SSADo.vars, Array.append_eq_append, Array.mem_append, mem_toArray, mem_cons,
                 not_mem_nil, or_false, not_or] at this
-            exact this.2
-        }⟩
-        have := hkX.2.1
-        simp [Option.Any] at this
-        have ll : (Map.get vars kX').isSome := by grind
-        have hget : Map.get (Array.push vars (var, (SSAExpr.inferType vars val).get hval)) kX' = vars.get kX' := by
-            rw [Map.get_push]
-            simp only [Option.some_get, ite_eq_right_iff]
-            have := hkX.2.2; simp [SSADo.vars] at this; grind
-        simp [Option.Any, hget]
-        have : Map.get vars kX' = (Map.get vars kX').get ll := by grind
-        rw [this]; simp; grind
+          exact this.2
     -- todo :: need roundtripping lemma about ktype
     have hrest' : (inferType (Array.push vars (var, (SSAExpr.inferType vars val).get hval)) (Map.keys mutVars) (Map.keys kmutVars)
         kbreak.isSome kcontinue.isSome k.isSome (some ktype) rest) = ktype := sorry
