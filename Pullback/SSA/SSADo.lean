@@ -311,49 +311,45 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
     }) sorry sorry args)
 | letE var val rest, hprog, hkbreak, hkcontinue, hk, args =>
     have hval : (val.inferType vars).isSome := by grind [inferType]
-    have : (rest.inferType (vars.push (var, (val.inferType vars).get hval)) mutVars.keys kmutVars.keys kbreak.isSome kcontinue.isSome k.isSome ktype).isSome := by grind [inferType]
+    have hrest : (rest.inferType (vars.push (var, (val.inferType vars).get hval)) mutVars.keys kmutVars.keys kbreak.isSome kcontinue.isSome k.isSome ktype).isSome := by grind [inferType]
     have qq : ¬ mutVars.keys.any (· == var) := by grind [inferType]
+    let ktype := ((SSADo.letE var val rest).inferType vars mutVars.keys kmutVars.keys kbreak.isSome kcontinue.isSome k.isSome ktype).get hprog
+    have letE_validCont : ∀ (kX : Option Name),
+    kX.All (validContinuationRef vars mutVars kmutVars (letE var val rest) ktype) →
+    kX.All (validContinuationRef (vars.push (var, (val.inferType vars).get hval)) mutVars kmutVars rest ktype) := by
+        intro kX hkX
+        apply Option.All_intro
+        intro kX' hkX'
+        simp [hkX', Option.All] at hkX
+        refine ⟨hkX.1, ?_, by {
+            have := hkX.2.2
+            simp only [SSADo.vars, Array.append_eq_append, Array.mem_append, mem_toArray, mem_cons,
+                not_mem_nil, or_false, not_or] at this
+            exact this.2
+        }⟩
+        have := hkX.2.1
+        simp [Option.Any] at this
+        have ll : (Map.get vars kX').isSome := by grind
+        have hget : Map.get (Array.push vars (var, (SSAExpr.inferType vars val).get hval)) kX' = vars.get kX' := by
+            rw [Map.get_push]
+            simp only [Option.some_get, ite_eq_right_iff]
+            have := hkX.2.2; simp [SSADo.vars] at this; grind
+        simp [Option.Any, hget]
+        have : Map.get vars kX' = (Map.get vars kX').get ll := by grind
+        rw [this]; simp; grind
+    -- todo :: need roundtripping lemma about ktype
+    have hrest' : (inferType (Array.push vars (var, (SSAExpr.inferType vars val).get hval)) (Map.keys mutVars) (Map.keys kmutVars)
+        kbreak.isSome kcontinue.isSome k.isSome (some ktype) rest) = ktype := sorry
+    have hrest'' : (inferType (Array.push vars (var, (SSAExpr.inferType vars val).get hval)) (Map.keys mutVars) (Map.keys kmutVars)
+        kbreak.isSome kcontinue.isSome k.isSome (some ktype) rest).isSome := by grind
+    have ktype_eq : ktype = (rest.inferType (vars.push (var, (val.inferType vars).get hval))
+    (Map.keys mutVars) (Map.keys kmutVars) kbreak.isSome kcontinue.isSome k.isSome ktype) := by
+        have := inferType_ktype vars mutVars.keys kmutVars.keys kbreak.isSome kcontinue.isSome k.isSome ktype (.letE var val rest)
+        grind
     cast (by grind [inferType]) (rest.interp (vars.push (var, (val.inferType vars).get hval)) mutVars kmutVars kbreak kcontinue k ktype ⟨hvalidVars.1, ⟨by {
         apply Map.submap_push _ _ hvalidVars.2.1
         grind [Array.any_eq_true']
-    }, hvalidVars.2.2⟩⟩ this (by {
-        apply Option.All_intro
-        intro kbreak' hkbreak'
-        simp [hkbreak', Option.All] at hkbreak
-        refine ⟨hkbreak.1, ?_, by {
-            have := hkbreak.2.2
-            simp only [SSADo.vars, Array.append_eq_append, Array.mem_append, mem_toArray, mem_cons,
-            not_mem_nil, or_false, not_or] at this
-            exact this.2
-        }⟩
-        have := hkbreak.2.1
-        simp [Option.Any] at this
-        have ll : (Map.get vars kbreak').isSome := by grind
-        have : Map.get (Array.push vars (var, (SSAExpr.inferType vars val).get hval)) kbreak' = vars.get kbreak' := by
-            rw [Map.get_push]
-            simp only [Option.some_get, ite_eq_right_iff]
-            have := hkbreak.2.2
-            simp [SSADo.vars] at this
-            grind
-        simp [Option.Any, this]
-        have : Map.get vars kbreak' = (Map.get vars kbreak').get ll := by grind
-        rw [this]
-        simp
-        have : (inferType (Array.push vars (var, (SSAExpr.inferType vars val).get hval)) (Map.keys mutVars) (Map.keys kmutVars) kbreak.isSome kcontinue.isSome k.isSome ktype rest) = inferType vars (Map.keys mutVars) (Map.keys kmutVars) true kcontinue.isSome k.isSome ktype (letE var val rest) := by
-            simp [hkbreak']
-            simp only [inferType, Array.any_eq_true', beq_iff_eq, Option.bind_eq_bind,
-              Option.bind_none, Option.pure_def, Option.bind_some]
-            simp only [Array.any_eq_true', beq_iff_eq, not_exists] at qq
-            simp
-            have : ¬ var ∈ mutVars.keys := by
-                grind
-            simp only [this, ↓reduceIte]
-            rw [Option.isSome_iff_exists] at hval
-            obtain ⟨valT, hvalT⟩ := hval
-            simp [hvalT]
-        simp [this]
-        grind
-    }) sorry sorry (cast (by simp only [Array.map_push]) (args.push (val.interp vars (by grind only) args))))
+    }, hvalidVars.2.2⟩⟩ hrest'' (by grind) (by grind) (by grind) (cast (by simp only [Array.map_push]) (args.push (val.interp vars (by grind only) args))))
 | letM var val rest, hprog, hkbreak, hkcontinue, hk, args =>
     have hval : (val.inferType vars).isSome := by grind [inferType]
     have hh : ¬ mutVars.keys.any (· == var) := by grind [inferType]
