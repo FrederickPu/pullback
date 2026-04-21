@@ -1,10 +1,41 @@
 import Pullback.SSA.Basic
 
+theorem List.subset_of_isPrefixOf {α} [BEq α] [LawfulBEq α] (x y : List α) : x.isPrefixOf y → x ⊆ y := by
+    rw [List.isPrefixOf_iff_prefix]
+    exact fun a => IsPrefix.subset a
+
+open List
+
+-- theorem Array.isPrefixOf_toList_isPrefixOf {α} [BEq α] (x y : Array α) : x.isPrefixOf y → x.toList.isPrefixOf y.toList := by
+--     apply Array.isPrefixOf_toList
+
+theorem Array.isPrefixOf_sublist {α} [BEq α] [LawfulBEq α] (as bs : Array α) : as.isPrefixOf bs → as.toList <+ bs.toList :=
+    fun h =>
+    have : as.toList.isPrefixOf (bs.toList) := by
+        grind only [= Array.isPrefixOf_toList]
+    have : List.IsPrefix as.toList bs.toList :=
+        isPrefixOf_iff_prefix.mp this
+    IsPrefix.sublist this
+
+theorem Array.mem_isPrefixOf {α} [BEq α] [LawfulBEq α] (as bs : Array α) : as.isPrefixOf bs → ∀ x ∈ as, x ∈ bs := by
+    intro h
+    have := Array.isPrefixOf_sublist as bs h
+    have : as.toList ⊆ bs.toList := Sublist.subset this
+    intro x hx
+    have : x ∈ as.toList := hx.val
+    grind only [= List.subset_def, = mem_toList_iff, #d8ea]
+
 open Lean
 
 variable {α β} [DecidableEq α]
 
-def Map.get_uniqueKeys (x : Map α β) (hx : x.uniqueKeys) : ∀ y ∈ x, x.get y.1 = y.2 := sorry
+
+theorem Map.get_uniqueKeys (x : Map α β) (hx : x.uniqueKeys) : ∀ y ∈ x, x.get y.1 = y.2 := by
+    intro y hy
+    simp [Map.get, Array.findLast?, Map.uniqueKeys, Array.find?_eq_some_iff_getElem] at *
+    sorry -- todo :: need Array.findLast?_eq_some_iff... style lemma
+
+theorem Map.get_key (x : Map α β) : ∀ y ∈ x.keys, ∃ yy ∈ x, yy.1 = y ∧ (x.get y) = yy.2 := sorry
 
 theorem Map.get_eq_some_imp_any (vars : Map α β) (key : α) (a : β) :
         vars.get key = some a → vars.any (·.1 = key) := by
@@ -12,7 +43,10 @@ theorem Map.get_eq_some_imp_any (vars : Map α β) (key : α) (a : β) :
     grind
 
 theorem Map.get_isSome_iff_any (vars : Map α β) (key : α) :
-    (vars.get key).isSome ↔ vars.any (·.1 = key) := sorry
+    (vars.get key).isSome ↔ vars.any (·.1 = key) := by
+    simp only [get, Array.findLast?, Option.isSome_map, Array.find?_isSome, Array.mem_reverse,
+      decide_eq_true_eq, Prod.exists, exists_and_right, exists_eq_right, Array.any_eq_true']
+
 
 theorem Map.get_mem {α β} [DecidableEq α] (vars : Map α β) (key : α) (val : β) :
         (key, val) ∈ vars → ∃ a, vars.get key = some a := by
@@ -149,4 +183,65 @@ def ArgMap.equivVars (args : ArgMap) (vars : VarMap) : Prop := Map.equiv (args.m
 
 def ArgMap.equivTypes (args₁ args₂ : ArgMap) : Prop := args₁.map (fun x => (x.1, x.2.inferType)) = args₂.map (fun x => (x.1, x.2.inferType))
 
-theorem ArgMap.equivTypes_rfl (args: ArgMap) : args.equivTypes args := sorry
+theorem ArgMap.equivTypes_rfl (args: ArgMap) : args.equivTypes args := by
+    grind [equivTypes]
+
+theorem SSAExpr.inferType_mkMutTuple' (vars : VarMap) : (mutVars : VarMap) → (h1 : mutVars.uniqueKeys) → (h2 : mutVars.submap vars) → (mkMutTuple mutVars).fst.inferType vars = (mkMutTuple mutVars).snd := by
+    intro mutVars h1 h2
+    apply SSAExpr.inferType_mkMutTuple
+    intro x hx
+    simp only [Map.submap, Array.any_eq_true', decide_eq_true_eq,
+        Set.setOf_subset_setOf] at h2
+    apply Map.get_uniqueKeys at h1
+    have hx' : x ∈ mutVars := by grind
+    rw [← h1 x (by grind)]
+    simp only [forall_exists_index] at h2
+    exact (h2.2 x.1 x (by grind)).symm
+
+open List
+
+theorem Map.keys_subset_sublist (a b : Map α β) (hab : a.toList <+ b.toList) : a.keys.toList <+ b.keys.toList := by
+    simp only [keys, Array.toList_map]
+    grind
+
+theorem Map.keys_prefixOf_sublist [BEq (α × β)] [LawfulBEq (α × β)] (a b : Map α β) (hab : Array.isPrefixOf a b) : a.keys.toList <+ b.keys.toList := by
+    apply keys_subset_sublist
+    exact Array.isPrefixOf_sublist a b hab
+
+theorem Map.uniqueKeys_sublist (a b : Map α β) (hb : b.uniqueKeys) (hab : a.toList <+ b.toList) : a.uniqueKeys := by
+    simp only [uniqueKeys] at *
+    have := Map.keys_subset_sublist a b hab
+    exact Sublist.nodup this hb
+
+theorem Map.uniqueKeys_prefixOf [BEq (α × β)] [LawfulBEq (α × β)] (a b : Map α β) (hb : b.uniqueKeys) (hab : Array.isPrefixOf a b) : a.uniqueKeys := by
+    simp only [uniqueKeys] at *
+    have : a.keys.toList <+ b.keys.toList :=
+        keys_prefixOf_sublist a b hab
+    exact Sublist.nodup this hb
+
+theorem Map.submap_trans (a b c : Map α β) : a.submap b → b.submap c → a.submap c := by
+    simp only [submap, Array.any_eq_true', decide_eq_true_eq, Set.setOf_subset_setOf,
+      forall_exists_index, and_imp]
+    grind
+
+theorem Map.submap_sublist [BEq (α × β)] [LawfulBEq (α × β)] (a b : Map α β) (hb : b.uniqueKeys) (hab : a.toList <+ b.toList) : a.submap b := by
+    simp only [submap, Array.any_eq_true', decide_eq_true_eq, Set.setOf_subset_setOf,
+      forall_exists_index]
+    apply Map.keys_subset_sublist at hab
+    have : a.keys.toList ⊆ b.keys.toList := by exact Sublist.subset hab
+    apply And.intro
+    sorry
+    intro name x hh
+    have hn : name ∈ a.keys := sorry
+    have : name ∈ a.keys.toList := by sorry
+    have : name ∈ b.keys := by (expose_names; exact Array.mem_def.mpr (this_1 this))
+    have := get_key _ _ hn
+    obtain ⟨x', hx'1, hx'2, Hx'⟩ := this
+    rw [Hx']
+    symm
+    have := get_uniqueKeys b sorry x' sorry
+    rw [← this]
+    grind
+
+theorem Map.submap_prefixOf [BEq (α × β)] [LawfulBEq (α × β)] (a b : Map α β) (hb : b.uniqueKeys) (hab : a.isPrefixOf b) : a.submap b := by
+    sorry

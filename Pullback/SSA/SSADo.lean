@@ -2,6 +2,9 @@ import Pullback.SSA.Basic
 import Pullback.SSA.SSAExpr
 open Lean
 
+set_option maxHeartbeats 1000000
+
+
 inductive SSADo where
 | expr : SSAExpr → SSADo
 | seq (s₁ s₂ : SSADo) : SSADo
@@ -200,6 +203,8 @@ def Option.All_intro {α} {p : α → Prop} {x : Option α} (h : ∀ x', x = som
     | some x' => grind [All]
     | none => grind [All]
 
+theorem SSADo.inferType_ktype (vars : VarMap) (mutVars kmutVars : Array Name) (hasBreak : Bool) (hasContinue : Bool) (hasK : Bool) (ktype : SSAType) (prog : SSADo): prog.inferType vars mutVars kmutVars hasBreak hasContinue hasK ktype |>.All (· = ktype) := sorry
+
 /-
     name `k` referes to a valid continutation for the current mutvars
 -/
@@ -213,6 +218,11 @@ def validVars (vars mutVars kmutVars : VarMap) : Prop := mutVars.uniqueKeys ∧ 
 
 instance (vm : VarMap) : Inhabited (DVector (vm.map (·.2.type)).toList) := sorry
 
+theorem SSADo.inferType_continutation (vars mutVars kmutVars : VarMap) (k : Name) (prog : SSADo) (ktype : SSAType) (hvalid : validContinuationRef vars mutVars kmutVars prog ktype k) :
+    (SSAExpr.var k).inferType vars = SSAType.fun (mkMutTuple kmutVars).2 ktype := sorry
+
+open List
+
 #check Fin.cast
 def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option Name) (ktype : Option SSAType) (hvalidVars : validVars vars mutVars kmutVars) :
     (prog : SSADo) →
@@ -223,16 +233,38 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
     k.All (validContinuationRef vars mutVars kmutVars prog ktype) → DVector (Array.toList (vars.map (·.2.type))) →
     ktype.type
 | expr e, hprog, hkbreak, hkcontinue, hk, args =>
-    have he : (e.inferType vars).isSome := by sorry
-    match k with
+    have he : (e.inferType vars).isSome := by grind [inferType]
+    match hhk : k with
     | some k' =>
         have : (e.inferType vars).get he = .ofBase .unit := by grind [inferType]
-        have hkRef : (vars.findLastFinIdx? (·.1 == k')).isSome := sorry
-        let kfun := cast (β := (mkMutTuple kmutVars).2.type → (ktype.get (by grind [inferType])).type)
-            sorry
-            (args.get (cast (by grind) ((vars.findLastFinIdx? (·.1 == k')).get hkRef)))
-        cast sorry <|
-            kfun (cast sorry ((mkMutTuple kmutVars).1.interp vars sorry args))
+        have hktype : ktype.isSome := by grind [inferType]
+        let kfun := cast (β := (mkMutTuple kmutVars).2.type → (ktype.get hktype).type)
+            (by {
+                have : ktype = ktype.get hktype := by grind
+                have qq : inferType vars (Map.keys mutVars) (Map.keys kmutVars) kbreak.isSome kcontinue.isSome k.isSome (ktype.get hktype) (expr e) = (inferType vars (Map.keys mutVars) (Map.keys kmutVars) kbreak.isSome kcontinue.isSome k.isSome (ktype.get hktype) (expr e)).get (by rw [← this, hhk]; exact hprog) := by grind
+                have := inferType_ktype vars mutVars.keys kmutVars.keys kbreak.isSome kcontinue.isSome k.isSome (ktype.get hktype) (.expr e)
+                rw [qq] at this
+                simp [Option.All, hhk] at this
+                simp [this] at hk
+                have := inferType_continutation vars mutVars kmutVars k' (.expr e) (ktype.get hktype) hk
+                simp [this, SSAType.type]
+            })
+            ((SSAExpr.var k').interp vars (by {
+                simp [SSAExpr.inferType]
+                simp [Option.All] at hk
+                have := hk.2.1
+                grind only [= Option.bind_apply, Option.bind_eq_some_iff, = Option.isSome_some,
+                  #7b3d]
+            }) args)
+        have : (SSAExpr.inferType vars (mkMutTuple kmutVars).1) = (mkMutTuple kmutVars).2 := by
+            have h1 : kmutVars.uniqueKeys :=
+                Map.uniqueKeys_prefixOf kmutVars mutVars hvalidVars.1 hvalidVars.2.2
+            have : kmutVars.submap mutVars :=
+                Map.submap_prefixOf _ _  hvalidVars.1 hvalidVars.2.2
+            have h2 : kmutVars.submap vars := Map.submap_trans kmutVars mutVars vars this hvalidVars.2.1
+            exact SSAExpr.inferType_mkMutTuple' vars kmutVars h1 h2
+        cast (by grind [inferType_ktype, inferType]) <|
+            kfun (cast (by grind) ((mkMutTuple kmutVars).1.interp vars (by grind) args))
     | none =>
         cast (by grind [inferType]) (e.interp vars he args)
         -- cast (by grind [inferType]) ((base.interp vars) (by grind [inferType]) args)
