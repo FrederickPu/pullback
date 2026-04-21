@@ -141,7 +141,7 @@ theorem SSAExpr.inferType_eq_of_vars_equiv (vars₁ vars₂ : VarMap) (hvars : v
 def Map.submap (vars₁ vars₂ : Map α β) : Prop :=
     {name | vars₁.any (·.1 = name)} ⊆ {name | vars₂.any (·.1 = name)} ∧ ∀ name, vars₁.any (·.1 = name) → vars₁.get name = vars₂.get name
 
-def Map.submap_push (vars₁ vars₂ : Map α β) (hvars : vars₁.submap vars₂) (varname : α) (vartype : β) : Map.submap (vars₁.push (varname, vartype)) (vars₂.push (varname, vartype)) := by
+def Map.push_submap_push (vars₁ vars₂ : Map α β) (hvars : vars₁.submap vars₂) (varname : α) (vartype : β) : Map.submap (vars₁.push (varname, vartype)) (vars₂.push (varname, vartype)) := by
     simp only [submap, Array.any_eq_true, decide_eq_true_eq, forall_exists_index, Array.size_push, Array.any_push', Bool.or_eq_true] at ⊢ hvars
     apply And.intro
     · intro name
@@ -245,3 +245,8 @@ theorem Map.submap_sublist [BEq (α × β)] [LawfulBEq (α × β)] (a b : Map α
 
 theorem Map.submap_prefixOf [BEq (α × β)] [LawfulBEq (α × β)] (a b : Map α β) (hb : b.uniqueKeys) (hab : a.isPrefixOf b) : a.submap b := by
     sorry
+
+theorem Map.keys_push {key val} (x : Map α β) : Map.keys (x.push (key, val)) = x.keys.push key := by
+    grind [Map.keys]
+
+theorem Map.submap_push {key val} (x y : Map α β) (hxy : x.submap y) (hkey : key ∉ x.keys) : x.submap (y.push (key, val)) := sorry

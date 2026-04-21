@@ -10,7 +10,7 @@ theorem SSAExpr.inferType_eq_of_vars_submap (vars₁ vars₂ : VarMap) (hvars : 
     rw [← inferType_eq_of_vars_submap vars₁ vars₂ hvars val]
     obtain ⟨bodyT, valT, hvalT, hbodyT⟩ := H
     simp [hvalT, hbodyT]
-    have := inferType_eq_of_vars_submap (vars₁.push (varname, valT)) (vars₂.push (varname, valT)) (Map.submap_push _ _ hvars _ _) body (by grind)
+    have := inferType_eq_of_vars_submap (vars₁.push (varname, valT)) (vars₂.push (varname, valT)) (Map.push_submap_push _ _ hvars _ _) body (by grind)
     grind
     grind
 | lam varname type body => by
@@ -19,7 +19,7 @@ theorem SSAExpr.inferType_eq_of_vars_submap (vars₁ vars₂ : VarMap) (hvars : 
     simp [Option.isSome_iff_exists, Option.bind_eq_some_iff] at H
     obtain ⟨bodyT, hbodyT⟩ := H
     simp [hbodyT]
-    have := inferType_eq_of_vars_submap (vars₁.push (varname, type)) (vars₂.push (varname, type)) (Map.submap_push _ _ hvars _ _) body (by grind)
+    have := inferType_eq_of_vars_submap (vars₁.push (varname, type)) (vars₂.push (varname, type)) (Map.push_submap_push _ _ hvars _ _) body (by grind)
     grind
 | app f x => by
     simp only [inferType]
