@@ -381,10 +381,14 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
             rw [Map.get_push]
             simp only [Option.some_get, ite_eq_right_iff]
             have := hkX.2.2; simp [SSADo.vars] at this; grind
-        --   simp only [Array.size_push, Array.any_push', Bool.or_eq_true,
-            -- Array.any_eq_true', decide_eq_true_eq, not_or, not_exists]
           have : Map.get vars kX' = (Map.get vars kX').get (by grind) := by grind
-          sorry
+          simp [Option.Any, Map.get_push]
+          have : var ≠ kX' := by
+            have := hkX.2.2
+            simp only [SSADo.vars, Array.append_eq_append, Array.mem_append, mem_toArray, mem_cons,
+              not_mem_nil] at this
+            grind
+          grind
         · have := hkX.2.2
           simp only [SSADo.vars, Array.append_eq_append, Array.mem_append, mem_toArray, mem_cons,
                 not_mem_nil, or_false, not_or] at this
@@ -394,7 +398,12 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
             grind [inferType, Map.keys_push]
         grind [inferType_ktype_roundtrip]
     have : (rest.inferType (vars.push (var, valT)) (Map.keys (mutVars.push (var, valT))) kmutVars.keys kbreak.isSome kcontinue.isSome k.isSome ktype').isSome := by grind
-    cast (by grind [inferType, Map.keys_push]) (rest.interp (vars.push (var, valT)) (mutVars.push (var, valT)) kmutVars kbreak kcontinue k ktype' sorry this (by grind) (by grind) (by grind) (cast (by simp [valT]) (args.push (val.interp vars (by grind only) args))))
+    cast (by grind [inferType, Map.keys_push]) (rest.interp (vars.push (var, valT)) (mutVars.push (var, valT)) kmutVars kbreak kcontinue k ktype' (by {
+        refine ⟨?_, ?_, ?_⟩
+        sorry
+        exact Map.push_submap_push _ _ hvalidVars.2.1 _ _
+        sorry
+    }) this (by grind) (by grind) (by grind) (cast (by simp [valT]) (args.push (val.interp vars (by grind only) args))))
 | assign var val rest, hprog, hkbreak, hkcontinue, hk, args =>
     have hval : (val.inferType vars).isSome := by grind [inferType]
     let valT := (val.inferType vars).get hval
