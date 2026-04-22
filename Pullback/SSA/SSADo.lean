@@ -367,12 +367,12 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
         apply Option.All_intro
         intro kX' hkX'
         simp [hkX', Option.All] at hkX
-        refine ⟨?_, ?_, ?_⟩
-        · simp only [Array.any_push, Bool.or_eq_true, decide_eq_true_eq, not_or]
-          have : ¬var = kX' := by
+        have : ¬var = kX' := by
             have : var ∈ (letM var val rest).vars := by simp [SSADo.vars]
             have := hkX.2.2
             grind
+        refine ⟨?_, ?_, ?_⟩
+        · simp only [Array.any_push, Bool.or_eq_true, decide_eq_true_eq, not_or]
           have := hkX.1
           grind
         · have := hkX.2.1
@@ -383,11 +383,6 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
             have := hkX.2.2; simp [SSADo.vars] at this; grind
           have : Map.get vars kX' = (Map.get vars kX').get (by grind) := by grind
           simp [Option.Any, Map.get_push]
-          have : var ≠ kX' := by
-            have := hkX.2.2
-            simp only [SSADo.vars, Array.append_eq_append, Array.mem_append, mem_toArray, mem_cons,
-              not_mem_nil] at this
-            grind
           grind
         · have := hkX.2.2
           simp only [SSADo.vars, Array.append_eq_append, Array.mem_append, mem_toArray, mem_cons,
