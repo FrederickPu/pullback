@@ -137,7 +137,10 @@ def SSADo.inferType (vars : VarMap) (mutVars kmutVars : Array Name) (hasBreak : 
         else
             none
     else
-        return et
+        if et = continutationType || continutationType = none then
+            return et
+        else
+            none
 | seq s₁ s₂ => do
     let _ ← s₁.inferType vars mutVars kmutVars false false false (some <| .ofBase .unit)
     s₂.inferType vars mutVars kmutVars hasBreak hasContinue hasK continutationType
@@ -208,7 +211,93 @@ def Option.All_intro {α} {p : α → Prop} {x : Option α} (h : ∀ x', x = som
     | some x' => grind [All]
     | none => grind [All]
 
-theorem SSADo.inferType_ktype (vars : VarMap) (mutVars kmutVars : Array Name) (hasBreak : Bool) (hasContinue : Bool) (hasK : Bool) (ktype : SSAType) (prog : SSADo): prog.inferType vars mutVars kmutVars hasBreak hasContinue hasK ktype |>.All (· = ktype) := sorry
+theorem SSADo.inferType_ktype (vars : VarMap) (mutVars kmutVars : Array Name) (hasBreak : Bool) (hasContinue : Bool) (hasK : Bool) (ktype : SSAType) : (prog : SSADo) → prog.inferType vars mutVars kmutVars hasBreak hasContinue hasK ktype |>.All (· = ktype)
+| expr e => by
+    match hasK with
+    | true =>
+        apply Option.All_intro
+        intro t
+        simp [inferType]
+        intro h
+        option_elim
+        grind
+    | false =>
+        apply Option.All_intro
+        intro t
+        simp [inferType]
+        intro h
+        option_elim
+        grind
+| seq s₁ s₂ => by
+    apply Option.All_intro
+    intro t ht
+    simp [inferType] at ht
+    option_elim
+    have := inferType_ktype vars mutVars kmutVars hasBreak hasContinue hasK ktype s₂
+    grind [Option.All]
+| letE var val rest => by
+    apply Option.All_intro
+    intro t ht
+    simp [inferType] at ht
+    have ht1 := ht.1
+    have ht2 := ht.2
+    simp only at ht2
+    option_elim
+    have := inferType_ktype (vars.push (var, dolift)) mutVars kmutVars hasBreak hasContinue hasK ktype rest
+    grind [Option.All]
+| letM var val rest => by
+    apply Option.All_intro
+    intro t ht
+    simp [inferType] at ht
+    have ht1 := ht.1
+    have ht2 := ht.2
+    simp only at ht2
+    option_elim
+    have := inferType_ktype (vars.push (var, valT)) (mutVars.push var) kmutVars hasBreak hasContinue hasK ktype rest
+    grind [Option.All]
+| assign var val rest => by
+    apply Option.All_intro
+    intro t ht
+    simp [inferType] at ht
+    option_elim
+    simp at ht
+    have := inferType_ktype (vars.push (var, valT)) mutVars kmutVars hasBreak hasContinue hasK ktype rest
+    grind [Option.All]
+| loop body rest => by
+    apply Option.All_intro
+    intro t ht
+    simp [inferType] at ht
+    option_elim
+    simp at ht
+    have := inferType_ktype vars mutVars kmutVars hasBreak hasContinue hasK ktype rest
+    grind [Option.All]
+| .break => by
+    grind [inferType, Option.All]
+| .continue => by
+    grind [inferType, Option.All]
+| .return _ => by
+    apply Option.All_intro
+    intro t ht
+    simp [inferType] at ht
+    option_elim
+    grind
+| ifthenelse cond t e rest => by
+    apply Option.All_intro
+    intro tt htt
+    simp [inferType] at htt
+    option_elim
+    simp at htt
+    have htt1 := htt.1
+    have htt2 := htt.2
+    simp only at htt2
+    option_elim
+    simp at htt2
+    have htt3 := htt2.2
+    simp only at htt3
+    option_elim
+    simp at htt3
+    have := inferType_ktype vars mutVars kmutVars hasBreak hasContinue hasK ktype rest
+    grind [Option.All]
 
 theorem SSADo.inferType_ktype_roundtrip (vars : VarMap) (mutVars kmutVars : Array Name)
     (hasBreak hasContinue hasK : Bool) (ktype : Option SSAType) (ktype' : SSAType) (prog : SSADo)
@@ -227,7 +316,6 @@ theorem SSADo.inferType_push_eq_of_hygenic
     prog.inferType (vars.push (newvar, newVarType)) mutVars kmutVars hasBreak hasContinue hasK continuationType =
     prog.inferType vars mutVars kmutVars hasBreak hasContinue hasK continuationType := sorry
 
-#check Option.all
 /-
     name `k` referes to a valid continutation for the current mutvars
 -/
