@@ -188,10 +188,10 @@ def SSADo.inferType (vars : VarMap) (mutVars kmutVars : Array Name) (hasBreak : 
     if (← cond.inferType vars) != .ofBase .int then
         none
     let restT ← rest.inferType vars mutVars kmutVars hasBreak hasContinue hasK continutationType
-    let tT ← t.inferType vars mutVars kmutVars hasBreak hasContinue hasK restT
+    let tT ← t.inferType vars mutVars mutVars hasBreak hasContinue true restT
     if tT != restT then
         none
-    let tE ← e.inferType vars mutVars kmutVars hasBreak hasContinue hasK restT
+    let tE ← e.inferType vars mutVars mutVars hasBreak hasContinue true restT
     if tE != restT then
         none
     return restT
@@ -542,14 +542,47 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
 | ifthenelse c t e rest, hprog, hkbreak, hkcontinue, hk, args =>
     let ktype' := ((ifthenelse c t e rest).inferType vars mutVars.keys kmutVars.keys kbreak.isSome kcontinue.isSome k.isSome ktype).get hprog
     have : (c.inferType vars).isSome := by grind [inferType]
-    let cval : Int := cast sorry (c.interp vars this)
-    have ht : (t.inferType vars mutVars.keys kmutVars.keys true true true ktype').isSome := sorry
-    have he : (e.inferType vars mutVars.keys kmutVars.keys true true true ktype').isSome := sorry
-    let kbreak' := sorry
-    let kcontinue' := sorry
+    have hc : c.inferType vars = SSAType.ofBase .int := by grind [inferType]
+    let cval : Int := cast (by simp [hc, SSAType.type, SSABaseType.type]) (c.interp vars this args)
+    have ⟨hrest, ht, he⟩ : rest.inferType vars mutVars.keys kmutVars.keys kbreak.isSome kcontinue.isSome k.isSome ktype = ktype' ∧
+            t.inferType vars mutVars.keys mutVars.keys kbreak.isSome kcontinue.isSome true ktype' = ktype' ∧
+            e.inferType vars mutVars.keys mutVars.keys kbreak.isSome kcontinue.isSome true ktype' = ktype':= by
+        simp [inferType] at hprog
+        option_elim
+        simp at hprog
+        have h1 := hprog.1
+        have hprog := hprog.2
+        simp only at hprog
+        option_elim
+        simp at hprog
+        have ht := hprog.1
+        have hprog := hprog.2
+        simp only at hprog
+        option_elim
+        simp at hprog
+        have : ktype' = restT := by
+            simp [ktype', inferType, hc, hrestT, htT, ht]
+        refine ⟨?_, ?_, ?_⟩
+        grind
+        grind
+        grind
+    let kbreak' : Option Name := sorry
+    -- let kbreakFun' := sorry
+    -- have : kbreakFun'.isSome = kbreak.isSome
+    have hkbreak' : kbreak'.isSome = kbreak.isSome := sorry
+    let kcontinue' : Option Name := sorry
+    -- let kcontinueFun' := sorry
+    -- have : kcontinueFun'.isSome = kcontinue.isSome
+    have hkcontinue' : kcontinue'.isSome = kcontinue.isSome := sorry
     let k' := sorry
     -- todo:: push the modified kbreak and kcontinue and k functions to the vars and args
     if cval != 0 then
-        cast sorry <| t.interp vars mutVars kmutVars (some kbreak') (some kcontinue') (some k') ktype' hvalidVars ht sorry sorry sorry args
+        cast (by {
+            simp [hkcontinue', hkbreak', ht]
+            rfl
+        }) <| t.interp vars mutVars mutVars kbreak' kcontinue' (some k') ktype' sorry (by simp [hkbreak', hkcontinue', ht]) sorry sorry sorry args
     else
-        cast sorry <| e.interp vars mutVars kmutVars (some kbreak') (some kcontinue') (some k') ktype' hvalidVars he sorry sorry sorry args
+        cast (by {
+            simp [hkcontinue', hkbreak', he]
+            rfl
+        }) <| e.interp vars mutVars mutVars kbreak' kcontinue' (some k') ktype' sorry (by simp [hkbreak', hkcontinue', he]) sorry sorry sorry args
