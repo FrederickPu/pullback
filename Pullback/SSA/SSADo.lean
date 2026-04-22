@@ -434,25 +434,19 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
     match kbreak with
     | some kbreak' =>
         let ktype' := (SSADo.break.inferType vars mutVars.keys kmutVars.keys (some kbreak').isSome kcontinue.isSome k.isSome ktype).get hprog
-        let kbreakFun : (mkMutTuple kmutVars).2.type → ktype'.type := cast (by {
-            have := SSADo.inferType_continutation vars mutVars kmutVars kbreak' (SSADo.continue) ktype' hkbreak
-            simp [this, SSAType.type]
-        }) <| (SSAExpr.var kbreak').interp vars sorry args
-        kbreakFun (cast (by {
-            simp [inferType_mkMutTuple_of_validVars vars mutVars kmutVars hvalidVars]
-        }) <| (mkMutTuple kmutVars).1.interp vars sorry args)
+        have hbreakType := SSADo.inferType_continutation vars mutVars kmutVars kbreak' (SSADo.continue) ktype' hkbreak
+        let kbreakFun : (mkMutTuple kmutVars).2.type → ktype'.type := cast (by simp [hbreakType, SSAType.type]) <| (SSAExpr.var kbreak').interp vars (by simp [hbreakType]) args
+        have hmutTupleType := inferType_mkMutTuple_of_validVars vars mutVars kmutVars hvalidVars
+        kbreakFun (cast (by simp [hmutTupleType]) <| (mkMutTuple kmutVars).1.interp vars (by simp [hmutTupleType]) args)
     | none => by grind [inferType]
 | .continue, hprog, hkbreak, hkcontinue, hk, args =>
     match kcontinue with
     | some kcontinue' =>
         let ktype' := (SSADo.continue.inferType vars mutVars.keys kmutVars.keys kbreak.isSome (some kcontinue').isSome k.isSome ktype).get hprog
-        let kcontinueFun : (mkMutTuple kmutVars).2.type → ktype'.type := cast (by {
-            have := SSADo.inferType_continutation vars mutVars kmutVars kcontinue' (SSADo.continue) ktype' hkcontinue
-            simp [this, SSAType.type]
-        }) <| (SSAExpr.var kcontinue').interp vars sorry args
-        kcontinueFun (cast (by {
-            simp [inferType_mkMutTuple_of_validVars vars mutVars kmutVars hvalidVars]
-        }) <| (mkMutTuple kmutVars).1.interp vars sorry args)
+        have hcontinueType := SSADo.inferType_continutation vars mutVars kmutVars kcontinue' (SSADo.continue) ktype' hkcontinue
+        let kcontinueFun : (mkMutTuple kmutVars).2.type → ktype'.type := cast (by simp [hcontinueType, SSAType.type]) <| (SSAExpr.var kcontinue').interp vars (by simp [hcontinueType]) args
+        have hmutTupleType := inferType_mkMutTuple_of_validVars vars mutVars kmutVars hvalidVars
+        kcontinueFun (cast (by simp [hmutTupleType]) <| (mkMutTuple kmutVars).1.interp vars (by simp [hmutTupleType]) args)
     | none => by grind [inferType]
 | .return out, hprog, hkbreak, hkcontine, hk, args =>
     have : (out.inferType vars).isSome := by grind [inferType]
