@@ -37,14 +37,57 @@ def extrinsicFix [∀ y, Nonempty (C y)]
   else
     opaqueFix F x
 
+namespace extendOracle
+
+variable [∀ y, Nonempty (C y)]
+  (F : (x : α) → ((y : α) → C y) → C x) (x : α)
+
+/-- At called positions, `extendOracle` returns the partial oracle's value. -/
+@[simp] theorem of_calls
+    (ih : (y : α) → calls F x y → C y) {y : α} (h : calls F x y) :
+    extendOracle F x ih y = ih y h := by
+  unfold extendOracle; rw [dif_pos h]
+
+/-- At uncalled positions, `extendOracle` returns `Classical.arbitrary`. -/
+@[simp] theorem of_not_calls
+    (ih : (y : α) → calls F x y → C y) {y : α} (h : ¬ calls F x y) :
+    extendOracle F x ih y = Classical.arbitrary _ := by
+  unfold extendOracle; rw [dif_neg h]
+
+/-- `extendOracle` agrees with `ih` on the called set: a clean form for `hF'`-style hypotheses. -/
+theorem agrees_on_calls
+    (ih : (y : α) → calls F x y → C y) :
+    ∀ y (h : calls F x y), extendOracle F x ih y = ih y h := fun _ h => of_calls F x ih h
+
+/-- Two `extendOracle`s with `ih`s agreeing on called positions are pointwise equal. -/
+theorem ext_of_calls_agree
+    (ih1 ih2 : (y : α) → calls F x y → C y)
+    (h : ∀ y (hc : calls F x y), ih1 y hc = ih2 y hc) :
+    extendOracle F x ih1 = extendOracle F x ih2 := by
+  funext y
+  unfold extendOracle
+  split_ifs with hc
+  · exact h y hc
+  · rfl
+
+/-- `F` applied to two `extendOracle`s with calls-agreeing `ih`s gives the same result. -/
+theorem F_extendOracle_eq_of_calls_agree
+    (ih1 ih2 : (y : α) → calls F x y → C y)
+    (h : ∀ y (hc : calls F x y), ih1 y hc = ih2 y hc) :
+    F x (extendOracle F x ih1) = F x (extendOracle F x ih2) := by
+  rw [ext_of_calls_agree F x ih1 ih2 h]
+
+end extendOracle
+
 theorem extrinsicFix_eq_of_relation
     [∀ y, Nonempty (C y)]
     (F : (x : α) → ((y : α) → C y) → C x) (hF : Terminates F)
     (r' : α → α → Prop) (hr' : WellFounded r')
     (hcontains : ∀ x y, calls F x y → r' y x)
     (F' : (x : α) → ((y : α) → r' y x → C y) → C x)
-    (hF' : ∀ x (ih : (y : α) → r' y x → C y),
-      F' x ih = F x (extendOracle F x (fun y h => ih y (hcontains x y h))))
+    (hF' : ∀ x (ih : (y : α) → r' y x → C y) (k : (y : α) → C y),
+      (∀ y (h : calls F x y), k y = ih y (hcontains x y h)) →
+      F x k = F' x ih)
     (x : α) :
     WellFounded.extrinsicFix r' F' x = extrinsicFix F x := by
   rw [show WellFounded.extrinsicFix r' F' x = hr'.fix F' x from by
@@ -53,12 +96,10 @@ theorem extrinsicFix_eq_of_relation
     unfold extrinsicFix; rw [dif_pos hF]]
   induction x using hF.induction with
   | _ x ih =>
-    rw [WellFounded.fix_eq, WellFounded.fix_eq, hF']
-    apply congrArg (F x)
-    funext y
-    unfold extendOracle
-    split_ifs with h
-    · exact ih y h
-    · rfl
+    rw [WellFounded.fix_eq, WellFounded.fix_eq]
+    rw [← hF' x (fun y _ => hr'.fix F' y)
+              (extendOracle F x (fun y h => hr'.fix F' y))
+              (extendOracle.agrees_on_calls F x _)]
+    exact extendOracle.F_extendOracle_eq_of_calls_agree F x _ _ (fun y h => ih y h)
 
 end Function
