@@ -193,11 +193,9 @@ def splitAndHyp (goal : MVarId) (fvarId : FVarId) : MetaM (MVarId × Bool) :=
     let rhs ← mkAppM ``And.right #[hypExpr]
     let lhsTy ← inferType lhs
     let rhsTy ← inferType rhs
-    -- replace the original hyp with its left component under the same name
     let g ← goal.assert decl.userName lhsTy lhs
     let (_, g) ← g.intro1P
     let g ← g.tryClear fvarId
-    -- add the right component as a fresh name
     let rhsName := Name.mkSimple s!"{decl.userName}_right"
     let g ← g.assert rhsName rhsTy rhs
     let (_, g) ← g.intro1P
@@ -206,7 +204,6 @@ def splitAndHyp (goal : MVarId) (fvarId : FVarId) : MetaM (MVarId × Bool) :=
 def optionElimHyp (goal : MVarId) (fvarId : FVarId) : MetaM (MVarId × Bool) := do
   let hypName := (← goal.withContext fvarId.getDecl).userName
   let goal ← rewriteBindEqBindHyp goal fvarId
-  -- re-lookup fresh fvarId by name after rewrite
   let lctx ← goal.withContext getLCtx
   let some decl := lctx.findFromUserName? hypName | return (goal, false)
   let (goal, p1) ← isSomeElimHyp goal decl.fvarId
