@@ -250,3 +250,11 @@ theorem Map.keys_push {key val} (x : Map α β) : Map.keys (x.push (key, val)) =
     grind [Map.keys]
 
 theorem Map.submap_push {key val} (x y : Map α β) (hxy : x.submap y) (hkey : key ∉ x.keys) : x.submap (y.push (key, val)) := sorry
+
+theorem Map.uniqueKeys_push (m : Map α β) (k : α) (v : β)
+    (hm : m.uniqueKeys) (hk : k ∉ m.keys) :
+    Map.uniqueKeys (m.push (k, v)) := by
+  simp only [uniqueKeys, keys, Array.map_push, Array.toList_push]
+  simp [uniqueKeys] at hm
+  rw [List.nodup_append]
+  sorry
