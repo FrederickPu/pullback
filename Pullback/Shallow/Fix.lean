@@ -125,6 +125,8 @@ def fibFun (n : ℕ) : ℕ := extrinsicFix F n
 /-- Fibonacci via core's well-founded recursion. -/
 def fibWf (n : ℕ) : ℕ := WellFounded.extrinsicFix (· < ·) F' n
 
+end Fib
+
 variable {α : Type u} {C : α → Sort v}
 
 /-- Project a structured `F'` (taking proofs of `r y x`) to an open-recursion `F` (taking total oracle). -/
@@ -136,7 +138,7 @@ def project {r : α → α → Prop}
 def project' {r : α → α → Prop} [DecidableRel r] [∀ y, Inhabited (C y)] {x}: ((y : α) → r y x → C y) → ((y : α) → C y) :=
   fun k => fun y => if h : r y x then k y h else default
 
-section project
+namespace Function
 
 variable {r : α → α → Prop}
   (F' : (x : α) → ((y : α) → r y x → C y) → C x)
@@ -150,4 +152,32 @@ theorem F_eq_F'_project  [DecidableRel r] [∀ y, Inhabited (C y)]
   ext y hy
   simp [hy]
 
-end project
+theorem extrinsicFix_eq_of_relation'
+    [∀ y, Inhabited (C y)]
+    (F : (x : α) → ((y : α) → C y) → C x)
+    (r : α → α → Prop) [DecidableRel r] (hr' : WellFounded r)
+    (hcontains : ∀ x y, calls F x y → r y x)
+    (F' : (x : α) → ((y : α) → r y x → C y) → C x)
+    (hF' : ∀ x (ih : (y : α) → r y x → C y) (k : (y : α) → C y),
+      (∀ y (h : calls F x y), k y = ih y (hcontains x y h)) →
+      F x k = F' x ih)
+    (x : α) :
+    WellFounded.extrinsicFix r F' x = extrinsicFix F x := by
+  have h1 : Terminates (project F') := sorry
+  have h2 : Terminates F := sorry
+  calc
+    _ = extrinsicFix (project F') x := by
+      apply extrinsicFix_eq_of_relation
+      exact h1
+      exact hr'
+      intro x' ih k hk
+      have : k = project' ih := sorry
+      grind [F_eq_F'_project]
+      intro x' y hxy'
+      specialize hF' x'
+      have : ∀ x y, calls (project F') x y → calls F x y := sorry -- lemma
+      grind
+    _ = _ := by {
+      simp [extrinsicFix, h1, h2]
+      sorry
+    }
