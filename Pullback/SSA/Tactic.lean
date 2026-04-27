@@ -1,4 +1,5 @@
 import Lean.Elab.Tactic.Basic
+import Lean.Elab.Tactic.Simp
 import Lean.Meta.Tactic.Replace
 import Lean.Meta.Tactic.Rewrite
 
@@ -53,7 +54,7 @@ def applyBindSomeIff (goal : MVarId) (hypId : FVarId) : MetaM (MVarId × FVarId)
     let newTy   ← inferType newVal
     let hypName := (← goal.getDecl).lctx.get! hypId |>.userName
     let newGoal ← goal.assert hypName newTy newVal
-    let (newHypId, newGoal) ← newGoal.intro1
+    let (newHypId, newGoal) ← newGoal.intro1P
     let newGoal ← newGoal.tryClear hypId
     return (newGoal, newHypId)
 
@@ -180,6 +181,28 @@ def rewriteBindEqBindHyp (goal : MVarId) (fvarId : FVarId) : MetaM MVarId := do
   let replaceResult ← goal.withContext (goal.replaceLocalDecl fvarId result.eNew result.eqProof)
   return replaceResult.mvarId
 
+-- Split a hypothesis `h : A ∧ B` into `h : A` and a fresh `h_right : B`.
+-- Returns the new goal and true if progress was made.
+def splitAndHyp (goal : MVarId) (fvarId : FVarId) : MetaM (MVarId × Bool) :=
+  goal.withContext do
+    let decl ← fvarId.getDecl
+    let ty   ← inferType decl.toExpr
+    let some (_, _) := ty.and? | return (goal, false)
+    let hypExpr := .fvar fvarId
+    let lhs ← mkAppM ``And.left  #[hypExpr]
+    let rhs ← mkAppM ``And.right #[hypExpr]
+    let lhsTy ← inferType lhs
+    let rhsTy ← inferType rhs
+    -- replace the original hyp with its left component under the same name
+    let g ← goal.assert decl.userName lhsTy lhs
+    let (_, g) ← g.intro1P
+    let g ← g.tryClear fvarId
+    -- add the right component as a fresh name
+    let rhsName := Name.mkSimple s!"{decl.userName}_right"
+    let g ← g.assert rhsName rhsTy rhs
+    let (_, g) ← g.intro1P
+    return (g, true)
+
 def optionElimHyp (goal : MVarId) (fvarId : FVarId) : MetaM (MVarId × Bool) := do
   let hypName := (← goal.withContext fvarId.getDecl).userName
   let goal ← rewriteBindEqBindHyp goal fvarId
@@ -194,16 +217,64 @@ def optionElimHyp (goal : MVarId) (fvarId : FVarId) : MetaM (MVarId × Bool) := 
 
 @[tactic optionElim]
 def evalOptionElim : Tactic := fun _ => do
-  let goal ← getMainGoal
-  let (newGoal, progress) ← applyToAllHyps goal optionElimHyp
-  replaceMainGoal [newGoal]
-  unless progress do
-    logWarning "option_elim: no progress made"
+  let mut progress := true
+  while progress do
+    evalTactic (← `(tactic| try simp only [reduceIte, Option.ite_none_right_eq_some, Option.ite_none_left_eq_some] at *))
+    let goal ← getMainGoal
+    let (newGoal, p1) ← applyToAllHyps goal splitAndHyp
+    replaceMainGoal [newGoal]
+    let goal ← getMainGoal
+    let (newGoal, p2) ← applyToAllHyps goal optionElimHyp
+    replaceMainGoal [newGoal]
+    progress := p1 || p2
 
 theorem womp (a c : Option Nat) (b : Nat → Option Nat) (p : Nat → Prop) :
     (do let x ← a; some <| p (← b x)) = some True →
     c.isSome →
     (do let x ← a; let y ← c; some <| p (← b x)) = some True := by
   intro h h1
+  option_elim
+  grind
+
+theorem test_ite_symbolic_cond
+    (cond : Prop) [Decidable cond] (x t : Nat)
+    (f : Nat → Option Nat)
+    (h : (do let v ← (if cond then some x else none); f v) = some t) :
+    cond := by
+  option_elim
+  grind
+
+theorem test_ite_then_bind
+    (cond : Prop) [Decidable cond] (a : Option Nat) (f : Nat → Option Nat)
+    (t : Nat)
+    (h : (do let x ← (if cond then a else none); f x) = some t) :
+    cond ∧ ∃ x, a = some x ∧ f x = some t := by
+  option_elim
+  grind
+
+theorem test_real_shape
+    (vars : List (String × Nat)) (var : String) (val : Nat)
+    (lookup : String → List (String × Nat) → Option Nat)
+    (compute : Nat → Option Nat) (t : Nat)
+    (h : (do
+      let a ← lookup var vars
+      if a = val then compute a else none) = some t) :
+    ∃ a, lookup var vars = some a ∧ a = val ∧ compute a = some t := by
+  option_elim
+  grind
+
+-- Test: the ite is inside the bind body, and the true branch contains another bind.
+-- Pipeline:
+--   outer bind destructs    →  hx : a = some x,  h : (if cond x then b x >>= c else none) = some t
+--   ite_none_right_eq_some  →  h : cond x ∧ (b x >>= c) = some t
+--   splitAndHyp             →  h : cond x,  h_right : (b x >>= c) = some t
+--   inner bind destructs    →  hy : b x = some y,  h_right : c y = some t
+theorem test_bind_ite_bind
+    (a : Option Nat) (b : Nat → Option Nat) (c : Nat → Option Nat)
+    (cond : Nat → Prop) [DecidablePred cond] (t : Nat)
+    (h : (do
+      let x ← a
+      if cond x then do let y ← b x; c y else none) = some t) :
+    ∃ x, a = some x ∧ cond x ∧ ∃ y, b x = some y ∧ c y = some t := by
   option_elim
   grind

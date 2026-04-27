@@ -239,9 +239,6 @@ theorem SSADo.inferType_ktype (vars : VarMap) (mutVars kmutVars : Array Name) (h
     apply Option.All_intro
     intro t ht
     simp [inferType] at ht
-    have ht1 := ht.1
-    have ht2 := ht.2
-    simp only at ht2
     option_elim
     have := inferType_ktype (vars.push (var, dolift)) mutVars kmutVars hasBreak hasContinue hasK ktype rest
     grind [Option.All]
@@ -249,9 +246,6 @@ theorem SSADo.inferType_ktype (vars : VarMap) (mutVars kmutVars : Array Name) (h
     apply Option.All_intro
     intro t ht
     simp [inferType] at ht
-    have ht1 := ht.1
-    have ht2 := ht.2
-    simp only at ht2
     option_elim
     have := inferType_ktype (vars.push (var, valT)) (mutVars.push var) kmutVars hasBreak hasContinue hasK ktype rest
     grind [Option.All]
@@ -260,7 +254,6 @@ theorem SSADo.inferType_ktype (vars : VarMap) (mutVars kmutVars : Array Name) (h
     intro t ht
     simp [inferType] at ht
     option_elim
-    simp at ht
     have := inferType_ktype (vars.push (var, valT)) mutVars kmutVars hasBreak hasContinue hasK ktype rest
     grind [Option.All]
 | loop body rest => by
@@ -268,7 +261,6 @@ theorem SSADo.inferType_ktype (vars : VarMap) (mutVars kmutVars : Array Name) (h
     intro t ht
     simp [inferType] at ht
     option_elim
-    simp at ht
     have := inferType_ktype vars mutVars kmutVars hasBreak hasContinue hasK ktype rest
     grind [Option.All]
 | .break => by
@@ -286,16 +278,6 @@ theorem SSADo.inferType_ktype (vars : VarMap) (mutVars kmutVars : Array Name) (h
     intro tt htt
     simp [inferType] at htt
     option_elim
-    simp at htt
-    have htt1 := htt.1
-    have htt2 := htt.2
-    simp only at htt2
-    option_elim
-    simp at htt2
-    have htt3 := htt2.2
-    simp only at htt3
-    option_elim
-    simp at htt3
     have := inferType_ktype vars mutVars kmutVars hasBreak hasContinue hasK ktype rest
     grind [Option.All]
 
@@ -549,19 +531,8 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
             e.inferType vars mutVars.keys mutVars.keys kbreak.isSome kcontinue.isSome true ktype' = ktype':= by
         simp [inferType] at hprog
         option_elim
-        simp at hprog
-        have h1 := hprog.1
-        have hprog := hprog.2
-        simp only at hprog
-        option_elim
-        simp at hprog
-        have ht := hprog.1
-        have hprog := hprog.2
-        simp only at hprog
-        option_elim
-        simp at hprog
         have : ktype' = restT := by
-            simp [ktype', inferType, hc, hrestT, htT, ht]
+            simp [ktype', inferType, hc, hrestT, htT, hprog_right]
         refine ⟨?_, ?_, ?_⟩
         grind
         grind

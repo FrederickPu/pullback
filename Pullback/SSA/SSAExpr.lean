@@ -299,7 +299,6 @@ theorem reduce_app_beta (env : Array (Name × Option SSAExpr))
      | lam varName' varType' body' =>
         simp at hf
         option_elim
-        simp
         have : (lam varName' varType' body').size ≤ g.size := sorry
         rw [reduceAux_eq_reduce _ _ _ (by grind)]
         rw [reduceAux_eq_reduce _ _ _ (by grind [size])] at hf

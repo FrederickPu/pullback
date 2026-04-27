@@ -470,7 +470,6 @@ def SSAExpr.interp (vars : VarMap) : (e : SSAExpr) → (he : e.inferType vars |>
             apply False.elim
             simp only [inferType, hfType, Option.bind_some] at he
             option_elim
-            simp only [Option.ite_none_right_eq_some] at he
             grind
         })
     | none => by simp [inferType, hfType] at he
