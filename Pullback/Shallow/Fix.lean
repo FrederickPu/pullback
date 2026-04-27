@@ -103,3 +103,51 @@ theorem extrinsicFix_eq_of_relation
     exact extendOracle.F_extendOracle_eq_of_calls_agree F x _ _ (fun y h => ih y h)
 
 end Function
+
+namespace Fib
+open Function Classical
+
+/-- Open-recursion form of Fibonacci: `F n k` returns the n-th Fib using `k` as the recursive oracle. -/
+def F : (n : ℕ) → (ℕ → ℕ) → ℕ
+  | 0, _ => 0
+  | 1, _ => 1
+  | n+2, k => k (n+1) + k n
+
+/-- Structured form: takes a partial oracle, returning Fib using `<` as the well-founded relation. -/
+def F' : (n : ℕ) → ((m : ℕ) → m < n → ℕ) → ℕ
+  | 0, _ => 0
+  | 1, _ => 1
+  | n+2, ih => ih (n+1) (by omega) + ih n (by omega)
+
+/-- Fibonacci via the opaque-recursor framework. -/
+def fibFun (n : ℕ) : ℕ := extrinsicFix F n
+
+/-- Fibonacci via core's well-founded recursion. -/
+def fibWf (n : ℕ) : ℕ := WellFounded.extrinsicFix (· < ·) F' n
+
+variable {α : Type u} {C : α → Sort v}
+
+/-- Project a structured `F'` (taking proofs of `r y x`) to an open-recursion `F` (taking total oracle). -/
+def project {r : α → α → Prop}
+    (F' : (x : α) → ((y : α) → r y x → C y) → C x) :
+    (x : α) → ((y : α) → C y) → C x :=
+  fun x k => F' x (fun y _ => k y)
+
+def project' {r : α → α → Prop} [DecidableRel r] [∀ y, Inhabited (C y)] {x}: ((y : α) → r y x → C y) → ((y : α) → C y) :=
+  fun k => fun y => if h : r y x then k y h else default
+
+section project
+
+variable {r : α → α → Prop}
+  (F' : (x : α) → ((y : α) → r y x → C y) → C x)
+
+/-- The compatibility hypothesis is automatic for projections. -/
+theorem F_eq_F'_project  [DecidableRel r] [∀ y, Inhabited (C y)]
+    (x : α) (ih : (y : α) → r y x → C y) :
+    project F' x (project' ih) = F' x ih := by
+  unfold project project'
+  congr
+  ext y hy
+  simp [hy]
+
+end project
