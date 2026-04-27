@@ -2,6 +2,7 @@ import Lean
 import Mathlib.Logic.ExistsUnique
 import Mathlib.Data.Fin.Tuple.Basic
 import Pullback.SSA.Tactic
+import Pullback.Shallow.Fix
 
 open Lean
 
@@ -285,9 +286,26 @@ theorem Array.find?_eq_getElem_findFinIdx? {α : Type u} (xs : Array α) (p : α
     · grind
 
 #check ForIn
-def SSA.loop {α β : Type u} {m : Type u → Type v} [Monad m] [Inhabited α] (init : α) (step : α → (α → m β) → m β) : m β := sorry
+def SSA.loop {α β : Type u} {m : Type u → Type v} [Monad m] [Inhabited (m β)] (init : α) (step : α → (α → m β) → m β) : m β :=
+    Function.extrinsicFix (
+        fun x loop => step x loop
+    ) init
 
-lemma SSA.loop_unfold {α β : Type u} {m : Type u → Type v} [Monad m] [Inhabited α]
+-- /-- State carried by the loop: (n, accumulator). -/
+-- abbrev FactState := Nat × Nat
+
+-- /-- Factorial via SSA.loop. -/
+-- def factorial (n : Nat) : Id Nat :=
+--   SSA.loop (m := Id) (n, 1) (fun (n, acc) recurse =>
+--     match n with
+--     | 0     => pure acc
+--     | n + 1 => recurse (n, acc * (n + 1)))
+
+-- #eval factorial 5   -- expected: 120
+-- #eval factorial 10  -- expected: 3628800
+-- #eval factorial 0   -- expected: 1
+
+lemma SSA.loop_unfold {α β : Type u} {m : Type u → Type v} [Monad m] [Inhabited (m β)]
     (init : α) (step : α → (α → m β) → m β) :
     SSA.loop init step = step init (fun x => SSA.loop x step) := sorry
 
