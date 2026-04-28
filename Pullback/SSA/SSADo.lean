@@ -1,5 +1,6 @@
 import Pullback.SSA.Basic
 import Pullback.SSA.SSAExpr
+import Pullback.SSA.VarMap
 open Lean
 
 set_option maxHeartbeats 1000000
@@ -342,7 +343,7 @@ theorem SSADo.inferType_continutation (vars mutVars kmutVars : VarMap) (k : Name
 
 open List
 
-#check Fin.cast
+#check Map.keys_push
 def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option Name) (ktype : Option SSAType) (hvalidVars : validVars vars mutVars kmutVars) :
     (prog : SSADo) →
     (hprog : prog.inferType vars mutVars.keys kmutVars.keys kbreak.isSome kcontinue.isSome k.isSome ktype |>.isSome) →
@@ -576,6 +577,7 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
         unfold varsNew
         rw [Array.pushSome_pushSome_eq_append]
         apply inferType_append_eq_of_hygenic
+        simp [Map.keys_append, Map.keys_toArray, Option.mem_toArray]
         sorry
         sorry
         sorry

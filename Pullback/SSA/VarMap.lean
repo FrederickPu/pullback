@@ -249,6 +249,25 @@ theorem Map.submap_prefixOf [BEq (α × β)] [LawfulBEq (α × β)] (a b : Map �
 theorem Map.keys_push {key val} (x : Map α β) : Map.keys (x.push (key, val)) = x.keys.push key := by
     grind [Map.keys]
 
+theorem Map.keys_append (x y : Map α β) : Map.keys (x ++ y) = x.keys ++ y.keys := by
+    simp [Map.keys]
+
+theorem Map.keys_toArray (o : Option α) (v : β) :
+        Map.keys (Option.map (fun a => (a, v)) o).toArray = o.toArray := by
+    cases o
+    case none => simp [Map.keys, Option.map, Option.toArray]
+    case some a => simp [Map.keys, Option.map, Option.toArray]
+
+theorem Map.mem_keys_option_map_toArray (o : Option α) (v : β) (x : α) :
+        x ∈ Map.keys (Option.map (fun a => (a, v)) o).toArray ↔ x ∈ o.toArray := by
+    cases o
+    case none => simp [Option.map, Option.toArray, Map.keys]
+    case some val => simp [Option.map, Option.toArray, Map.keys]
+
+theorem Map.mem_keys_append_iff (x y : Map α β) (k : α) :
+        k ∈ Map.keys (x ++ y) ↔ k ∈ x.keys ∨ k ∈ y.keys := by
+    simp [Map.keys_append]
+
 theorem Map.submap_push {key val} (x y : Map α β) (hxy : x.submap y) (hkey : key ∉ x.keys) : x.submap (y.push (key, val)) := sorry
 
 theorem Map.uniqueKeys_push (m : Map α β) (k : α) (v : β)
