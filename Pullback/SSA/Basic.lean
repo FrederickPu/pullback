@@ -265,9 +265,14 @@ def DVector.push : {L: Array Type} → {α : Type} → DVector L.toList → α �
 | ⟨l::ls⟩, α, (x, xs), a => DVector.cons x <| DVector.push xs a
 
 def Array.pushSome {α : Type u} (as : Array α) (a : Option α) : Array α :=
-    match a with
-    | some a' => as.push a'
-    | none => as
+    as ++ a.toArray
+
+theorem Array.pushSome_eq_append {α : Type u} (a : Array α) (opt : Option α) :
+    a.pushSome opt = a ++ (opt.toArray) := rfl
+
+theorem Array.pushSome_pushSome_eq_append {α : Type u} (a : Array α) (opt1 opt2 : Option α) :
+    (a.pushSome opt1).pushSome opt2 = a ++ (opt1.toArray ++ opt2.toArray) := by
+  simp [Array.pushSome, Array.append_assoc]
 
 theorem Array.map_pushSome {α : Type u} {β : Type v} (f : α → β) (as : Array α) (a : Option α) :
         (Array.pushSome as a).map f = Array.pushSome (as.map f) (a.map f) := by

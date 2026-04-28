@@ -298,6 +298,17 @@ theorem SSADo.inferType_push_eq_of_hygenic
     prog.inferType (vars.push (newvar, newVarType)) mutVars kmutVars hasBreak hasContinue hasK continuationType =
     prog.inferType vars mutVars kmutVars hasBreak hasContinue hasK continuationType := sorry
 
+theorem SSADo.inferType_append_eq_of_hygenic
+    (vars : VarMap) (mutVars kmutVars : Array Name)
+    (hasBreak hasContinue hasK : Bool) (continuationType : Option SSAType)
+    (newVars : VarMap)
+    (hHygenic : ∀ x, x ∈ newVars.keys → ¬ vars.any (·.1 = x))
+    (hNotMut : ∀ x, x ∈ newVars.keys → ¬ mutVars.any (· == x)) :
+    (prog : SSADo) →
+    (prog.inferType vars mutVars kmutVars hasBreak hasContinue hasK continuationType).isSome →
+    prog.inferType (vars ++ newVars) mutVars kmutVars hasBreak hasContinue hasK continuationType =
+    prog.inferType vars mutVars kmutVars hasBreak hasContinue hasK continuationType := sorry
+
 /-
     name `k` referes to a valid continutation for the current mutvars
 -/
@@ -558,7 +569,16 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
                 rfl
             simp [h1, h2, qq]
         }) ((args.pushSome (kbreak'.map kbreakFun')).pushSome (kcontinue'.map kcontinueFun')))
-    have : ∀ prog, prog.vars.toList ⊆ (ifthenelse c t e rest).vars.toList → (inferType vars (Map.keys mutVars) (Map.keys mutVars) kbreak.isSome kcontinue.isSome true (some ktype') prog).isSome → inferType vars (Map.keys mutVars) (Map.keys mutVars) kbreak.isSome kcontinue.isSome true (some ktype') prog = inferType varsNew (Map.keys mutVars) (Map.keys mutVars) kbreak.isSome kcontinue.isSome true (some ktype') prog := sorry
+    have : ∀ prog, prog.vars.toList ⊆ (ifthenelse c t e rest).vars.toList →
+        (inferType vars (Map.keys mutVars) (Map.keys mutVars) kbreak.isSome kcontinue.isSome true (some ktype') prog).isSome →
+        inferType varsNew (Map.keys mutVars) (Map.keys mutVars) kbreak.isSome kcontinue.isSome true (some ktype') prog = inferType vars (Map.keys mutVars) (Map.keys mutVars) kbreak.isSome kcontinue.isSome true (some ktype') prog := by
+        intro prog' hprogvars' hprog'
+        unfold varsNew
+        rw [Array.pushSome_pushSome_eq_append]
+        apply inferType_append_eq_of_hygenic
+        sorry
+        sorry
+        sorry
     have htVars : t.vars.toList ⊆ (ifthenelse c t e rest).vars.toList := by simp [SSADo.vars]
     have heVars : e.vars.toList ⊆ (ifthenelse c t e rest).vars.toList := by simp [SSADo.vars]
     -- todo:: push the modified kbreak and kcontinue and k functions to the vars and args
@@ -566,7 +586,7 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
         cast (by {
             -- todo :: post mwe about this working but grind giving the sorry message
             have := this _ htVars (by grind)
-            simp [hkbreak', hkcontinue', ← this, ht]
+            simp [hkbreak', hkcontinue', this, ht]
             simp [ktype']
         }) <| t.interp varsNew mutVars mutVars kbreak' kcontinue' (some k') ktype' sorry (by grind) sorry sorry sorry argsNew
     else
