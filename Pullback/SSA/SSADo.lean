@@ -533,27 +533,29 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
         option_elim
         have : ktype' = restT := by
             simp [ktype', inferType, hc, hrestT, htT, hprog_right]
-        refine ⟨?_, ?_, ?_⟩
-        grind
-        grind
         grind
     let kbreak' : Option Name := sorry
-    -- let kbreakFun' := sorry
-    -- have : kbreakFun'.isSome = kbreak.isSome
+    let kbreakFun' : Option ((mkMutTuple mutVars).2.type → ktype'.type) := sorry
+    have : kbreakFun'.isSome = kbreak.isSome := sorry
     have hkbreak' : kbreak'.isSome = kbreak.isSome := sorry
     let kcontinue' : Option Name := sorry
-    -- let kcontinueFun' := sorry
-    -- have : kcontinueFun'.isSome = kcontinue.isSome
+    let kcontinueFun' : Option ((mkMutTuple mutVars).2.type → ktype'.type) := sorry
+    have : kcontinueFun'.isSome = kcontinue.isSome := sorry
     have hkcontinue' : kcontinue'.isSome = kcontinue.isSome := sorry
     let k' := sorry
+    let kfunType := (mkMutTuple mutVars).2.fun ktype'
+    let varsNew := (vars.pushSome (kbreak'.map ((·, kfunType)))).pushSome ((kcontinue'.map ((·, kfunType))))
+    let argsNew := (cast (by {
+            congr
+            simp [varsNew]
+            simp only [Array.map_pushSome, Option.map_map, kfunType, SSAType.type]
+            sorry
+        }) ((args.pushSome kbreakFun').pushSome kcontinueFun'))
+    have : ∀ prog, prog.vars.toList ⊆ (ifthenelse c t e rest).vars.toList → (inferType vars (Map.keys mutVars) (Map.keys mutVars) kbreak.isSome kcontinue.isSome true (some ktype') prog).isSome → inferType vars (Map.keys mutVars) (Map.keys mutVars) kbreak.isSome kcontinue.isSome true (some ktype') prog = inferType varsNew (Map.keys mutVars) (Map.keys mutVars) kbreak.isSome kcontinue.isSome true (some ktype') prog := sorry
+    have htVars : t.vars.toList ⊆ (ifthenelse c t e rest).vars.toList := by simp [SSADo.vars]
+    have heVars : e.vars.toList ⊆ (ifthenelse c t e rest).vars.toList := by simp [SSADo.vars]
     -- todo:: push the modified kbreak and kcontinue and k functions to the vars and args
     if cval != 0 then
-        cast (by {
-            simp [hkcontinue', hkbreak', ht]
-            rfl
-        }) <| t.interp vars mutVars mutVars kbreak' kcontinue' (some k') ktype' sorry (by simp [hkbreak', hkcontinue', ht]) sorry sorry sorry args
+        cast (by grind) <| t.interp varsNew mutVars mutVars kbreak' kcontinue' (some k') ktype' sorry (by grind) sorry sorry sorry argsNew
     else
-        cast (by {
-            simp [hkcontinue', hkbreak', he]
-            rfl
-        }) <| e.interp vars mutVars mutVars kbreak' kcontinue' (some k') ktype' sorry (by simp [hkbreak', hkcontinue', he]) sorry sorry sorry args
+        cast (by grind) <| e.interp varsNew mutVars mutVars kbreak' kcontinue' (some k') ktype' sorry (by grind) sorry sorry sorry argsNew

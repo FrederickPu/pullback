@@ -160,13 +160,15 @@ def SSAExpr.inferType (vars : VarMap) : SSAExpr → Option SSAType
             none
 | lam name varType body => body.inferType (vars.push (name, varType)) |>.bind (fun bodyType => SSAType.fun varType bodyType)
 
+instance : Inhabited SSAType := ⟨.ofBase .unit⟩
+
 def SSAExpr.inferType! (vars : VarMap) : SSAExpr → SSAType
 | const base => base.inferType
 | letE varname val body => body.inferType! (vars.push (varname, val.inferType! vars))
 | var name => (vars.get name).getD
-    (.ofBase .unit) -- dummy value this is failure case
+    default -- dummy value this is failure case
 | app f _ => ((f.inferType! vars).funCodom?).getD
-    (.ofBase .unit) -- dummy value this is failure case
+    default -- dummy value this is failure case
 | lam varName varType body => .fun varType (body.inferType! (vars.push (varName, varType)))
 
 inductive SSAValue where
@@ -262,6 +264,21 @@ def DVector.push : {L: Array Type} → {α : Type} → DVector L.toList → α �
 | ⟨[]⟩, α, _, a => (a, ())
 | ⟨l::ls⟩, α, (x, xs), a => DVector.cons x <| DVector.push xs a
 
+def Array.pushSome {α : Type u} (as : Array α) (a : Option α) : Array α :=
+    match a with
+    | some a' => as.push a'
+    | none => as
+
+theorem Array.map_pushSome {α : Type u} {β : Type v} (f : α → β) (as : Array α) (a : Option α) :
+        (Array.pushSome as a).map f = Array.pushSome (as.map f) (a.map f) := by
+    cases a <;> simp [Array.pushSome]
+
+def DVector.pushSome {α : Type} {L : Array Type} (dv : DVector L.toList) (a : Option α) :
+    DVector (Array.pushSome L (a.map (fun _ => α))).toList :=
+  match a with
+  | some a' => DVector.push dv a'
+  | none => cast (by simp [Array.pushSome]) dv
+
 def Array.mapDVector (l : Array α) (f : α → Type) (f' : (a : α) → f a) : DVector (l.map f).toList := sorry
 /-
     recursive structure follows List.get exactly
@@ -304,6 +321,17 @@ def SSA.loop {α β : Type u} {m : Type u → Type v} [Monad m] [Inhabited (m β
 -- #eval factorial 5   -- expected: 120
 -- #eval factorial 10  -- expected: 3628800
 -- #eval factorial 0   -- expected: 1
+
+@[inline] protected def Std.Legacy.Range.forInNew' {m : Type u → Type v} {σ β} (range : Range) (init : σ)
+    (kcons : (i : Nat) → i ∈ range → (σ → m β) → σ → m β) (knil : σ → m β) : m β :=
+  have := range.step_pos
+  let rec @[specialize] loop (i : Nat)
+      (hs : (i - range.start) % range.step = 0) (hl : range.start ≤ i := by omega) : σ → m β :=
+    if h : i < range.stop then
+      kcons i ⟨hl, by omega, hs⟩ (loop (i + range.step) (by rwa [Nat.add_comm, Nat.add_sub_assoc hl, Nat.add_mod_left]))
+    else
+      knil
+  loop range.start (by simp) (by simp) init
 
 lemma SSA.loop_unfold {α β : Type u} {m : Type u → Type v} [Monad m] [Inhabited (m β)]
     (init : α) (step : α → (α → m β) → m β) :
@@ -536,3 +564,7 @@ def freshName (vars : Array Name) (baseName : Name) : Name :=
         baseName
 
 theorem freshName_hygenic (vars : Array Name) (baseName : Name) : ∀ var ∈ vars, var ≠ freshName vars baseName := sorry
+
+theorem freshName_prefix (vars : Array Name) (baseName : Name) :
+    Name.isPrefixOf baseName (freshName vars baseName) = true := by
+  sorry
