@@ -210,13 +210,21 @@ def Expr.inferType {Const : Type} {BaseType : Type} [Typed Const (PType BaseType
     body.inferType (vars.push (name, varType)) |>.bind fun bodyType =>
       some (.fun varType bodyType)
 
+theorem PType.funCodom?_isSome_eq_funDom?_isSome {BaseType} : (x : PType BaseType) → (x.funCodom?.isSome = x.funDom?.isSome)
+| .ofBase b => by rfl
+| .prod T1 T2 => by rfl
+| .fun dom codom => by rfl
+
 theorem Expr.welltyped_app_iff {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType] [DecidableEq (PType BaseType)]
     (vars : VarMap BaseType) (f x : Expr Const BaseType) :
     ((f.app x).inferType vars).isSome ↔ (do pure ((← f.inferType vars).funDom? = (← x.inferType vars))) = some True := by
-  simp only [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff, PType.funDom?,
-    Option.pure_def, Option.bind_eq_bind, Option.some.injEq, eq_iff_iff, iff_true]
-  sorry
+  simp [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff]
+  have : ∀ x : PType BaseType, x.funCodom?.isSome = x.funDom?.isSome :=
+    fun x =>
+      PType.funCodom?_isSome_eq_funDom?_isSome x
+  grind [Option.isSome_iff_exists]
+
 
 def Expr.interp {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
     [BasedType BaseType] [Interp BaseType Const] [DecidableEq BaseType] [DecidableEq (PType BaseType)]
@@ -262,7 +270,7 @@ def Expr.interp {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
                 ⟩
                 exact Fin.le_last' _
               _ = _ := by
-                simp [Map.Array.findLast?, inferType, Map.get]
+                simp [Map.Array.findLast?]
         ) (ctx.get (Fin.cast (by
           simp only [Array.toList_map, List.length_map, Array.length_toList]
         ) x))
