@@ -534,13 +534,11 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
         have : ktype' = restT := by
             simp [ktype', inferType, hc, hrestT, htT, hprog_right]
         grind
-    let kbreak' : Option Name := sorry
-    let kbreakFun' : Option ((mkMutTuple mutVars).2.type → ktype'.type) := sorry
-    have : kbreakFun'.isSome = kbreak.isSome := sorry
+    let kbreak' : Option Name := kbreak.map (fun kbreak => freshName (vars.keys ++ t.vars ++ e.vars) kbreak)
+    let kbreakFun' : Name → ((mkMutTuple mutVars).2.type → ktype'.type) := sorry
     have hkbreak' : kbreak'.isSome = kbreak.isSome := sorry
-    let kcontinue' : Option Name := sorry
-    let kcontinueFun' : Option ((mkMutTuple mutVars).2.type → ktype'.type) := sorry
-    have : kcontinueFun'.isSome = kcontinue.isSome := sorry
+    let kcontinue' : Option Name := kcontinue.map ((fun kcontinue => freshName (vars.keys ++ t.vars ++ e.vars) kcontinue))
+    let kcontinueFun' : Name → ((mkMutTuple mutVars).2.type → ktype'.type) := sorry
     have hkcontinue' : kcontinue'.isSome = kcontinue.isSome := sorry
     let k' := sorry
     let kfunType := (mkMutTuple mutVars).2.fun ktype'
@@ -549,13 +547,27 @@ def SSADo.interp (vars mutVars kmutVars : VarMap) (kbreak kcontinue k : Option N
             congr
             simp [varsNew]
             simp only [Array.map_pushSome, Option.map_map, kfunType, SSAType.type]
-            sorry
-        }) ((args.pushSome kbreakFun').pushSome kcontinueFun'))
+            have h1 : ((fun x => (mkMutTuple mutVars).2.type → ktype'.type) ∘ kcontinueFun') = (fun x => (mkMutTuple mutVars).2.type → ktype'.type) := by
+                ext q
+                rfl
+            have h2 : ((fun x => (mkMutTuple mutVars).2.type → ktype'.type) ∘ kbreakFun') = (fun x => (mkMutTuple mutVars).2.type → ktype'.type) := by
+                ext q
+                rfl
+            have qq : ((fun x : Name × SSAType => x.2.type) ∘ fun x => (x, (mkMutTuple mutVars).2.fun ktype')) = (fun x => (mkMutTuple mutVars).2.type → ktype'.type) := by
+                ext q
+                rfl
+            simp [h1, h2, qq]
+        }) ((args.pushSome (kbreak'.map kbreakFun')).pushSome (kcontinue'.map kcontinueFun')))
     have : ∀ prog, prog.vars.toList ⊆ (ifthenelse c t e rest).vars.toList → (inferType vars (Map.keys mutVars) (Map.keys mutVars) kbreak.isSome kcontinue.isSome true (some ktype') prog).isSome → inferType vars (Map.keys mutVars) (Map.keys mutVars) kbreak.isSome kcontinue.isSome true (some ktype') prog = inferType varsNew (Map.keys mutVars) (Map.keys mutVars) kbreak.isSome kcontinue.isSome true (some ktype') prog := sorry
     have htVars : t.vars.toList ⊆ (ifthenelse c t e rest).vars.toList := by simp [SSADo.vars]
     have heVars : e.vars.toList ⊆ (ifthenelse c t e rest).vars.toList := by simp [SSADo.vars]
     -- todo:: push the modified kbreak and kcontinue and k functions to the vars and args
     if cval != 0 then
-        cast (by grind) <| t.interp varsNew mutVars mutVars kbreak' kcontinue' (some k') ktype' sorry (by grind) sorry sorry sorry argsNew
+        cast (by {
+            -- todo :: post mwe about this working but grind giving the sorry message
+            have := this _ htVars (by grind)
+            simp [hkbreak', hkcontinue', ← this, ht]
+            simp [ktype']
+        }) <| t.interp varsNew mutVars mutVars kbreak' kcontinue' (some k') ktype' sorry (by grind) sorry sorry sorry argsNew
     else
         cast (by grind) <| e.interp varsNew mutVars mutVars kbreak' kcontinue' (some k') ktype' sorry (by grind) sorry sorry sorry argsNew
