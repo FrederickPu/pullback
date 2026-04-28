@@ -125,14 +125,13 @@ def Array.findLastFinIdx? {α : Type u} (p : α → Bool) (as : Array α) : Opti
     grind
   }⟩;
   Fin.last' - Fin.cast (Array.size_reverse) res) (as.reverse.findFinIdx? p)
-namespace P
 
-inductive Expr (Const BaseType : Type) [Typed Const (PType BaseType)] where
-| const : Const → Expr Const BaseType
-| letE (var : Name) (val : Expr Const BaseType) (body : Expr Const BaseType) : Expr Const BaseType
-| var (name : Name) : Expr Const BaseType
-| app (f : Expr Const BaseType) (arg : Expr Const BaseType)
-| lam (varName : Name) (varType : PType BaseType) (body : Expr Const BaseType) : Expr Const BaseType
+inductive PExpr (Const BaseType : Type) [Typed Const (PType BaseType)] where
+| const : Const → PExpr Const BaseType
+| letE (var : Name) (val : PExpr Const BaseType) (body : PExpr Const BaseType) : PExpr Const BaseType
+| var (name : Name) : PExpr Const BaseType
+| app (f : PExpr Const BaseType) (arg : PExpr Const BaseType)
+| lam (varName : Name) (varType : PType BaseType) (body : PExpr Const BaseType) : PExpr Const BaseType
 deriving DecidableEq
 
 /-- DVector is a heterogeneous tuple indexed by a list of types -/
@@ -168,13 +167,6 @@ def addToContext {L : Array Type} (dv : DVector L.toList) (α : Type) (x : α) :
     DVector ((L.push α).toList) :=
   DVector.push dv x
 
-theorem Array.toList_push {α : Type} (as : Array α) (a : α) : (as.push a).toList = as.toList ++ [a] := by
-  simp [Array.push]
-
-theorem Array.map_push {α β : Type} (as : Array α) (f : α → β) (a : α) :
-    (as.push a).map f = (as.map f).push (f a) := by
-  simp [Array.push]
-
 theorem PType.type_fun_eq {BaseType : Type} [BasedType BaseType] (dom codom : PType BaseType) :
     (.fun dom codom : PType BaseType).type = (dom.type → codom.type) := rfl
 
@@ -193,9 +185,9 @@ theorem Array.find?_eq_getElem_findFinIdx? {α : Type u} (xs : Array α) (p : α
     · rintro ⟨_, _, _, rfl, _⟩; grind
     · grind
 
-def Expr.inferType {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
+def PExpr.inferType {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType] [DecidableEq (PType BaseType)]
-    (vars : VarMap BaseType) : Expr Const BaseType → Option (PType BaseType)
+    (vars : VarMap BaseType) : PExpr Const BaseType → Option (PType BaseType)
 | .const c => some (Typed.type c)
 | .letE name val body =>
     (val.inferType vars).bind fun valType =>
@@ -215,9 +207,9 @@ theorem PType.funCodom?_isSome_eq_funDom?_isSome {BaseType} : (x : PType BaseTyp
 | .prod T1 T2 => by rfl
 | .fun dom codom => by rfl
 
-theorem Expr.welltyped_app_iff {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
+theorem PExpr.welltyped_app_iff {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType] [DecidableEq (PType BaseType)]
-    (vars : VarMap BaseType) (f x : Expr Const BaseType) :
+    (vars : VarMap BaseType) (f x : PExpr Const BaseType) :
     ((f.app x).inferType vars).isSome ↔ (do pure ((← f.inferType vars).funDom? = (← x.inferType vars))) = some True := by
   simp [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff]
   have : ∀ x : PType BaseType, x.funCodom?.isSome = x.funDom?.isSome :=
@@ -226,9 +218,9 @@ theorem Expr.welltyped_app_iff {Const : Type} {BaseType : Type} [Typed Const (PT
   grind [Option.isSome_iff_exists]
 
 
-def Expr.interp {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
+def PExpr.interp {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
     [BasedType BaseType] [Interp BaseType Const] [DecidableEq BaseType] [DecidableEq (PType BaseType)]
-    (vars : VarMap BaseType) : (e : Expr Const BaseType) →
+    (vars : VarMap BaseType) : (e : PExpr Const BaseType) →
     (he : (e.inferType vars).isSome) →
     DVector (Array.toList (vars.map (·.2.type))) →
     (Option.get (e.inferType vars) he).type
@@ -237,12 +229,12 @@ def Expr.interp {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
     match hh : val.inferType vars with
     | some valType =>
         have hbody : (body.inferType (vars.push ⟨name, valType⟩)).isSome = true := by
-          simpa [Expr.inferType, hh] using he
-        cast (by simp [Expr.inferType, hh]) <|
+          simpa [PExpr.inferType, hh] using he
+        cast (by simp [PExpr.inferType, hh]) <|
           body.interp (vars.push ⟨name, valType⟩) hbody
             (cast (by simp [hh]) <| ctx.push (val.interp vars (by simp [hh]) ctx))
     | none => by
-        simp [Expr.inferType, Option.isSome_bind] at he
+        simp [PExpr.inferType, Option.isSome_bind] at he
         grind only [= Option.any_none]
 | .var name, he, ctx =>
     match h : Array.findLastFinIdx? (fun x => x.1 == name) vars with
@@ -251,7 +243,7 @@ def Expr.interp {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
           simp only [inferType, Map.get, Option.isSome_map] at he
           exact he
         cast (by
-          simp [Expr.inferType, Map.get]
+          simp [PExpr.inferType, Map.get]
           calc
               _ = ((Map.Array.findLast? (fun x => decide (x.fst = name)) vars).get hfind).2.type := by
                 have : x = (some x).get rfl := rfl
@@ -317,17 +309,17 @@ def Expr.interp {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
         })
     | none => by simp [inferType, hfType] at he
 | .lam name valType body, he, ctx =>
-    cast (by simp [Expr.inferType, PType.type]) <|
+    cast (by simp [PExpr.inferType, PType.type]) <|
       fun val : valType.type =>
         body.interp (vars.push ⟨name, valType⟩) (by
-          simp [Expr.inferType, Option.isSome_bind] at he
+          simp [PExpr.inferType, Option.isSome_bind] at he
           grind
         ) (cast (by simp) <| ctx.push val)
 
-def Expr.interp! {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
+def PExpr.interp! {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
     [BasedType BaseType] [Interp BaseType Const] [DecidableEq BaseType] [DecidableEq (PType BaseType)]
     (vars : VarMap BaseType) :
-    (e : Expr Const BaseType) → DVector (Array.toList (vars.map (·.2.type))) →
+    (e : PExpr Const BaseType) → DVector (Array.toList (vars.map (·.2.type))) →
     (match e.inferType vars with
     | some ty => ty.type
     | none => Unit) := fun e ctx =>
