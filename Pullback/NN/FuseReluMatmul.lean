@@ -152,8 +152,8 @@ def lower : LinalgExpr → SCFExpr
 | .letE n v b =>
     .letE n (lower v) (lower b)
 
-theorem inferType_lower (e : LinalgExpr) (vars : VarMap TensorBaseType) (he : (e.inferType vars).isSome) :
+theorem inferType_lower (vars : VarMap TensorBaseType) : (e : LinalgExpr) → (he : (e.inferType vars).isSome) →
   e.inferType vars = (lower e).inferType vars := sorry
 
-theorem interp_lower (e : LinalgExpr) (vars : VarMap TensorBaseType) (he : (e.inferType vars).isSome) :
+theorem interp_lower (vars : VarMap TensorBaseType) : (e : LinalgExpr) → (he : (e.inferType vars).isSome) →
   cast (by grind [inferType_lower]) ((lower e).interp vars (by grind [inferType_lower])) = e.interp vars (by grind) := by sorry
