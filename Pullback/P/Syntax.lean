@@ -43,15 +43,15 @@ syntax "c(" term ")" : pexpr
 
 macro_rules
   | `(pexpr{$x:ident}) =>
-      `(PExpr.var $(mkIdent x.getId))
+      `(PExpr.var $(Quote.quote x.getId))
   | `(pexpr{$f $x}) =>
       `(PExpr.app pexpr{$f} pexpr{$x})
   | `(pexpr{fun $x : $tx => $body}) =>
-      `(PExpr.lam $(mkIdent x.getId) ptype{$tx} pexpr{$body})
+      `(PExpr.lam $(Quote.quote x.getId) ptype{$tx} pexpr{$body})
   | `(pexpr{let $x := $v in $b}) =>
       `(PExpr.letE $(mkIdent x.getId) pexpr{$v} pexpr{$b})
   | `(pexpr{($x)}) => `(pexpr{$x})
   | `(pexpr{`($x)}) => `($x)
-  | `(pexpr{c($x)}) => `($x)
+  | `(pexpr{c($x)}) => `(PExpr.const $x)
 
 end PExpr
