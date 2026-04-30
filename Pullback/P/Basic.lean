@@ -217,6 +217,39 @@ theorem PExpr.welltyped_app_iff {Const : Type} {BaseType : Type} [Typed Const (P
       PType.funCodom?_isSome_eq_funDom?_isSome x
   grind [Option.isSome_iff_exists]
 
+example (x : Option Nat) : ∃ (h : x.isSome), x.get h = 0 := sorry
+
+theorem PExpr.inferType_app_eq_some_iff {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
+    [DecidableEq BaseType] [DecidableEq (PType BaseType)]
+    (vars : VarMap BaseType) (f x : PExpr Const BaseType) (τ : PType BaseType) :
+    (f.app x).inferType vars = some τ ↔
+    ∃ hf hx hdom,
+      let fType := (f.inferType vars).get hf;
+      let argType := (x.inferType vars).get hx;
+      let dom := fType.funDom?.get hdom;
+        dom = argType ∧
+        fType.funCodom? = some τ := by
+  apply Iff.intro
+  · intro h
+    simp [inferType] at h
+    option_elim
+    grind
+  · intro ⟨hf, hx, hdom, H⟩
+    simp [Option.isSome_iff_exists] at hf hx hdom
+    grind [inferType]
+
+theorem PExpr.inferType_lam_eq_some_iff {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
+    [DecidableEq BaseType] [DecidableEq (PType BaseType)]
+    (vars : VarMap BaseType) (name : Name) (varType : PType BaseType) (body : PExpr Const BaseType) (τ : PType BaseType) :
+    (PExpr.lam name varType body).inferType vars = some τ ↔
+      ∃ hcodom, τ.funDom? = varType ∧ τ.funCodom?.get hcodom = body.inferType (vars.push (name, varType)) := by
+  apply Iff.intro
+  · intro h
+    simp [inferType] at h
+    option_elim
+    grind [PType.funCodom?, PType.funDom?]
+  · intro ⟨hcodom, H⟩
+    grind [PType.type_fun_eq_dom_codom, inferType]
 
 def PExpr.interp {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
     [BasedType BaseType] [Interp BaseType Const] [DecidableEq BaseType] [DecidableEq (PType BaseType)]
