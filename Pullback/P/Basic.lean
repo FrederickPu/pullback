@@ -87,10 +87,14 @@ def Array.findLast? {α : Type} (p : α → Bool) (as : Array α) : Option α :=
 def get {α β : Type} [DecidableEq α] (map : Map α β) (key : α) : Option β :=
     Array.findLast? (·.1 = key) map |>.map (·.2)
 
-def keys {α β : Type} [DecidableEq α] (x : Map α β) := x.map (·.1)
+def keys {α β : Type} (x : Map α β) := x.map (·.1)
+
+def vals {α β : Type} (x : Map α β) := x.map (·.2)
 
 def uniqueKeys {α β : Type} [DecidableEq α] (x : Map α β) : Prop :=
   (x.keys.toList).Nodup
+
+def mapVals {α β γ : Type} (f : β → γ) (x : Map α β) : Map α γ := Array.map (fun (key, val) => (key, f val)) x
 
 end Map
 
@@ -207,6 +211,12 @@ theorem PType.funCodom?_isSome_eq_funDom?_isSome {BaseType} : (x : PType BaseTyp
 | .prod T1 T2 => by rfl
 | .fun dom codom => by rfl
 
+theorem PExpr.welltyped_lam_iff {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
+    [DecidableEq BaseType] [DecidableEq (PType BaseType)]
+    (vars : VarMap BaseType) (varName : Name) (varType : PType BaseType) (body : PExpr Const BaseType) :
+    ((PExpr.lam varName varType body).inferType vars).isSome ↔ (body.inferType (vars.push (varName, varType))).isSome := by
+  simp [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff]
+
 theorem PExpr.welltyped_app_iff {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType] [DecidableEq (PType BaseType)]
     (vars : VarMap BaseType) (f x : PExpr Const BaseType) :
@@ -216,8 +226,6 @@ theorem PExpr.welltyped_app_iff {Const : Type} {BaseType : Type} [Typed Const (P
     fun x =>
       PType.funCodom?_isSome_eq_funDom?_isSome x
   grind [Option.isSome_iff_exists]
-
-example (x : Option Nat) : ∃ (h : x.isSome), x.get h = 0 := sorry
 
 theorem PExpr.inferType_app_eq_some_iff {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType] [DecidableEq (PType BaseType)]
