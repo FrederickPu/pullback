@@ -2,6 +2,7 @@ import Pullback.P.Basic
 import Pullback.P.Syntax
 
 open Lean
+open PExpr
 
 @[reducible]
 def NDArray (α : Type u) : List Nat → Type u
@@ -22,11 +23,12 @@ instance : BasedType TensorBaseType where
 abbrev T := PType TensorBaseType
 
 #check (ptype{b(.float) -> b(.float)} : T)
-
-
 #check (ptype{b(.float) -> b(.float) -> b(.float)} : T)
-#check (PType.ofBase TensorBaseType.float).fun ((PType.ofBase TensorBaseType.float).fun (PType.ofBase TensorBaseType.float))
 
+#check
+  (PType.ofBase TensorBaseType.float).fun
+    ((PType.ofBase TensorBaseType.float).fun
+      (PType.ofBase TensorBaseType.float))
 
 inductive LinalgConst
 | float (f : Float)
@@ -42,26 +44,27 @@ instance : Typed LinalgConst T where
         (.fun (.ofBase (.tensor [k, n]))
           (.ofBase (.tensor [m, n])))
 
-instance : Typed LinalgConst T where
-  type
-  | .float _ => .ofBase .float
-  | .relu => .fun (.ofBase .float) (.ofBase .float)
-  | .matmul m n k =>
-      .fun (.ofBase (.tensor [m, k]))
-        (.fun (.ofBase (.tensor [k, n]))
-          (.ofBase (.tensor [m, n])))
+#check
+  (rpexpr{
+    fun x : b(.tensor [2, 3]) =>
+      fun y : b(.tensor [3, 5]) =>
+        c(.matmul 2 3 5) x y
+  } : RawPExpr LinalgConst TensorBaseType)
 
-#check (pexpr{fun x : b(.tensor [2, 3]) => fun y : b(.tensor [3, 5]) => c(.matmul 2 3 5) x y} : PExpr LinalgConst TensorBaseType)
-#check PExpr.lam `x (PType.ofBase (TensorBaseType.tensor [2, 3]))
-  ((PExpr.lam `y (PType.ofBase (TensorBaseType.tensor [3, 5]))
-        ((PExpr.const (LinalgConst.matmul 2 3 5)).app (PExpr.var `x))).app
-    (PExpr.var `y))
+#check
+  RawPExpr.lam `x (PType.ofBase (TensorBaseType.tensor [2, 3]))
+    (RawPExpr.lam `y (PType.ofBase (TensorBaseType.tensor [3, 5]))
+      (RawPExpr.app
+        (RawPExpr.app
+          (RawPExpr.const (LinalgConst.matmul 2 3 5))
+          (RawPExpr.var `x))
+        (RawPExpr.var `y)))
 
 def test_app_assoc :
-  (pexpr{f a b} :
-    PExpr LinalgConst TensorBaseType)
+  (rpexpr{f a b} :
+    RawPExpr LinalgConst TensorBaseType)
   =
-  PExpr.app
-    (PExpr.app (PExpr.var `f) (PExpr.var `a))
-    (PExpr.var `b)
+  RawPExpr.app
+    (RawPExpr.app (RawPExpr.var `f) (RawPExpr.var `a))
+    (RawPExpr.var `b)
 := rfl

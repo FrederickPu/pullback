@@ -1,8 +1,8 @@
 import Lean
 import Mathlib.Logic.ExistsUnique
 import Mathlib.Data.Fin.Tuple.Basic
-import Pullback.SSA.Tactic
 import Pullback.Shallow.Fix
+import Pullback.P.Util
 
 open Lean
 
@@ -22,30 +22,6 @@ deriving DecidableEq
 
 namespace PType
 
-def funDom? {BaseType : Type} : PType BaseType → Option (PType BaseType)
-| .fun α _ => α
-| _ => none
-
-def funCodom? {BaseType : Type} : PType BaseType → Option (PType BaseType)
-| .fun _ β => β
-| _ => none
-
-theorem funDom?_eq_some_iff {BaseType : Type} (f : PType BaseType) (dom : PType BaseType):
-    f.funDom? = some dom → ∃ β, f = .fun dom β := by
-  intro h
-  match f with
-  | .fun α β => simp [funDom?] at h; exact ⟨β, h ▸ rfl⟩
-  | ofBase _ => simp [funDom?] at h
-  | prod α β => simp [funDom?] at h
-
-theorem funCodom?_eq_some_iff {BaseType : Type} (f : PType BaseType) (codom : PType BaseType):
-    f.funCodom? = some codom → ∃ α, f = .fun α codom := by
-  intro h
-  match f with
-  | .fun α β => simp [funCodom?] at h; exact ⟨α, h ▸ rfl⟩
-  | ofBase _ => simp [funCodom?] at h
-  | prod α β => simp [funCodom?] at h
-
 /-- Interpret a PType as a runtime Type, given a mapping on base types -/
 def type {BaseType : Type} [BasedType BaseType] : PType BaseType → Type
 | .ofBase baseTy => BasedType.valueType baseTy
@@ -54,103 +30,29 @@ def type {BaseType : Type} [BasedType BaseType] : PType BaseType → Type
 
 end PType
 
-theorem PType.type_fun_eq_dom_codom {BaseType : Type} (ftype : PType BaseType) (dom codom : PType BaseType) :
-    ftype.funDom? = some dom → ftype.funCodom? = some codom → ftype = .fun dom codom := by
-  intro hdom hcodom
-  match ftype with
-  | .fun α β =>
-    simp [PType.funDom?] at hdom
-    simp [PType.funCodom?] at hcodom
-    exact hdom ▸ hcodom ▸ rfl
-  | ofBase _ => simp [PType.funDom?] at hdom
-  | prod α β => simp [PType.funDom?] at hdom
-
-theorem PType.dom_isSome_iff_codom_isSome {BaseType : Type} (ftype : PType BaseType) :
-    ftype.funDom?.isSome ↔ ftype.funCodom?.isSome := by
-  match ftype with
-  | .fun α β => simp [PType.funDom?, PType.funCodom?]
-  | ofBase _ => simp [PType.funDom?, PType.funCodom?]
-  | prod α β => simp [PType.funDom?, PType.funCodom?]
 
 /-- `Interp BaseType Const` gives a runtime value for each typed constant. -/
 class Interp (BaseType : Type) (Const : Type) [BasedType BaseType] [Typed Const (PType BaseType)] where
   interp : ∀ c : Const, PType.type (BaseType := BaseType) (Typed.type (α := Const) (A := PType BaseType) c)
 
-abbrev Map (α : Type) (β : Type) := Array (α × β)
-
-abbrev VarMap (BaseType : Type) := Map Name (PType BaseType)
-
-namespace Map
-
-def Array.findLast? {α : Type} (p : α → Bool) (as : Array α) : Option α := as.reverse.find? p
-
-def get {α β : Type} [DecidableEq α] (map : Map α β) (key : α) : Option β :=
-    Array.findLast? (·.1 = key) map |>.map (·.2)
-
-def keys {α β : Type} (x : Map α β) := x.map (·.1)
-
-def vals {α β : Type} (x : Map α β) := x.map (·.2)
-
-def uniqueKeys {α β : Type} [DecidableEq α] (x : Map α β) : Prop :=
-  (x.keys.toList).Nodup
-
-def mapVals {α β γ : Type} (f : β → γ) (x : Map α β) : Map α γ := Array.map (fun (key, val) => (key, f val)) x
-
-end Map
-
-def Fin.last' {n : Nat} [NeZero n] : Fin n :=
-  match h : n with
-  | k + 1 => Fin.last k
-  | 0 => by
-      apply False.elim
-      expose_names
-      rw [h] at inst
-      simp at inst
-
-def Fin.val_last'_eq {n : Nat} [NeZero n] : (Fin.last' (n := n)).val = n - 1 := by
-  cases n with
-  | succ k => simp [last']
-  | zero => grind only
-
-def Fin.le_last' {n : Nat} [NeZero n] : ∀ i : Fin n, i ≤ (Fin.last' (n := n)) := by
-  cases n with
-  | succ k =>
-      intro i
-      have : i.val ≤ (last' : Fin (k + 1)).val := by
-          simp only [val_last'_eq, Nat.add_one_sub_one]
-          have := i.isLt
-          grind only
-      exact this
-  | zero => grind only
-
-def Array.findLastFinIdx? {α : Type u} (p : α → Bool) (as : Array α) : Option (Fin as.size) :=
-  Option.map (fun res => have : NeZero as.size := ⟨by {
-    have := res.isLt
-    grind
-  }⟩;
-  Fin.last' - Fin.cast (Array.size_reverse) res) (as.reverse.findFinIdx? p)
-
-inductive PExpr (Const BaseType : Type) [Typed Const (PType BaseType)] where
-| const : Const → PExpr Const BaseType
-| letE (var : Name) (val : PExpr Const BaseType) (body : PExpr Const BaseType) : PExpr Const BaseType
-| var (name : Name) : PExpr Const BaseType
-| app (f : PExpr Const BaseType) (arg : PExpr Const BaseType)
-| lam (varName : Name) (varType : PType BaseType) (body : PExpr Const BaseType) : PExpr Const BaseType
-deriving DecidableEq
+inductive PExpr (Const BaseType : Type) [Typed Const (PType BaseType)] : List (PType BaseType) → PType BaseType → Type where
+| const {ctx} (c : Const): PExpr Const BaseType ctx (Typed.type c)
+| letE {ctx} {valT} {ty} (val : PExpr Const BaseType ctx valT) (body : PExpr Const BaseType (valT::ctx) ty) : PExpr Const BaseType ctx ty
+| var {ctx} (name : Fin ctx.length) : PExpr Const BaseType ctx (ctx.get name)
+| app {ctx} {argT} {ty} (f : PExpr Const BaseType ctx (.fun argT ty)) (arg : PExpr Const BaseType ctx argT) : PExpr Const BaseType ctx ty
+| lam {bodyT} {ctx} (varType : PType BaseType) (body : PExpr Const BaseType (varType::ctx) bodyT) : PExpr Const BaseType ctx (.fun varType bodyT)
 
 /-- DVector is a heterogeneous tuple indexed by a list of types -/
 def DVector : List Type → Type
 | [] => Unit
 | α::l => α × DVector l
 
-def Array.findLast? {α : Type u} (p : α → Bool) (as : Array α) : Option α := as.reverse.find? p
-
-def Array.pushSome {α : Type u} (as : Array α) (a : Option α) : Array α :=
-    as ++ a.toArray
-
 namespace DVector
 
 def cons {L: List Type} {α : Type} : α → DVector L → DVector (α::L)
+| a, dv => (a, dv)
+
+def cons' {BaseType : Type} [BasedType BaseType] {ctx : List (PType BaseType)} {alpha : PType BaseType} : alpha.type → DVector (ctx.map (·.type)) → DVector ((alpha::ctx).map (·.type))
 | a, dv => (a, dv)
 
 def push {L: Array Type} {α : Type} (dv : DVector L.toList) (a : α) : DVector (L.push α).toList :=
@@ -166,204 +68,97 @@ def get : {L : List Type} → (v : DVector L) → (i : Fin L.length) → L.get i
 
 end DVector
 
-/-- Helper function to extend context by adding a binding value -/
-def addToContext {L : Array Type} (dv : DVector L.toList) (α : Type) (x : α) :
-    DVector ((L.push α).toList) :=
-  DVector.push dv x
+def PExpr.interp {Const BaseType : Type} [BasedType BaseType] [Typed Const (PType BaseType)] [Interp BaseType Const] {ctx} {ty} (args : DVector (ctx.map (·.type))) : (e : PExpr Const BaseType ctx ty) → ty.type
+| const c => Interp.interp c
+| letE val body =>
+  body.interp (DVector.cons' (val.interp args) args)
+| var name => cast (by simp) <| args.get (Fin.cast (by simp) name)
+| app f arg =>
+  (f.interp args) (arg.interp args)
+| lam varType body =>
+  fun x : varType.type => body.interp (DVector.cons' x args)
 
-theorem PType.type_fun_eq {BaseType : Type} [BasedType BaseType] (dom codom : PType BaseType) :
-    (.fun dom codom : PType BaseType).type = (dom.type → codom.type) := rfl
+namespace PExpr
 
-theorem Array.findLast?_map {α β : Type u} (f : α → β) (p : β → Bool) (as : Array α) :
-    Array.findLast? p (as.map f) = (Array.findLast? (p ∘ f) as).map f := by
-  simp only [findLast?]
-  rcases as with ⟨xs⟩
-  simp [← List.map_reverse, List.find?_map]
+inductive RawPExpr (Const BaseType : Type)
+where
+| var   (x : Name)
+| app   (f a : RawPExpr Const BaseType)
+| lam   (x : Name) (ty : PType BaseType)
+        (body : RawPExpr Const BaseType)
+| letE  (x : Name)
+        (v body : RawPExpr Const BaseType)
+| const (c : Const)
 
-theorem Array.find?_eq_getElem_findFinIdx? {α : Type u} (xs : Array α) (p : α → Bool) :
-      xs.find? p = (xs.findFinIdx? p).map (xs[·]) := by
-    rcases xs with ⟨xs⟩; ext
-    simp [List.findFinIdx?_eq_pmap_findIdx?, List.findIdx?_eq_fst_find?_zipIdx,
-        List.find?_eq_some_iff_getElem]
-    constructor
-    · rintro ⟨_, _, _, rfl, _⟩; grind
-    · grind
+def RawPExpr.inferType {Const BaseType} [DecidableEq BaseType] [Typed Const (PType BaseType)] (ctxRaw : List (Name × PType BaseType)) : RawPExpr Const BaseType → Option (PType BaseType)
+| var (x : Name) => (ctxRaw.find? (·.1 == x)).map (·.2)
+| app f a => do
+  match ← f.inferType ctxRaw, ← a.inferType ctxRaw with
+  | .fun dom codom, ta =>
+    if ta = dom then
+      return codom
+    none
+  | _, _ => none
+| lam x ty body =>
+  (body.inferType ((x, ty)::ctxRaw)).map (fun bodyT => .fun ty bodyT)
+| letE x v body =>
+  (v.inferType ctxRaw).bind
+    fun vT =>
+      body.inferType ((x, vT)::ctxRaw)
+| const c => some (Typed.type c)
 
-def PExpr.inferType {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
-    [DecidableEq BaseType] [DecidableEq (PType BaseType)]
-    (vars : VarMap BaseType) : PExpr Const BaseType → Option (PType BaseType)
-| .const c => some (Typed.type c)
-| .letE name val body =>
-    (val.inferType vars).bind fun valType =>
-      body.inferType (vars.push ⟨name, valType⟩)
-| .var name => Map.get vars name
-| .app f arg =>
-    f.inferType vars |>.bind fun fType =>
-    arg.inferType vars |>.bind fun argType =>
-    fType.funDom? |>.bind fun dom =>
-      if dom = argType then fType.funCodom? else none
-| .lam name varType body =>
-    body.inferType (vars.push (name, varType)) |>.bind fun bodyType =>
-      some (.fun varType bodyType)
-
-theorem PType.funCodom?_isSome_eq_funDom?_isSome {BaseType} : (x : PType BaseType) → (x.funCodom?.isSome = x.funDom?.isSome)
-| .ofBase b => by rfl
-| .prod T1 T2 => by rfl
-| .fun dom codom => by rfl
-
-theorem PExpr.welltyped_lam_iff {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
-    [DecidableEq BaseType] [DecidableEq (PType BaseType)]
-    (vars : VarMap BaseType) (varName : Name) (varType : PType BaseType) (body : PExpr Const BaseType) :
-    ((PExpr.lam varName varType body).inferType vars).isSome ↔ (body.inferType (vars.push (varName, varType))).isSome := by
-  simp [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff]
-
-theorem PExpr.welltyped_app_iff {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
-    [DecidableEq BaseType] [DecidableEq (PType BaseType)]
-    (vars : VarMap BaseType) (f x : PExpr Const BaseType) :
-    ((f.app x).inferType vars).isSome ↔ (do pure ((← f.inferType vars).funDom? = (← x.inferType vars))) = some True := by
-  simp [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff]
-  have : ∀ x : PType BaseType, x.funCodom?.isSome = x.funDom?.isSome :=
-    fun x =>
-      PType.funCodom?_isSome_eq_funDom?_isSome x
-  grind [Option.isSome_iff_exists]
-
-theorem PExpr.inferType_app_eq_some_iff {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
-    [DecidableEq BaseType] [DecidableEq (PType BaseType)]
-    (vars : VarMap BaseType) (f x : PExpr Const BaseType) (τ : PType BaseType) :
-    (f.app x).inferType vars = some τ ↔
-    ∃ hf hx hdom,
-      let fType := (f.inferType vars).get hf;
-      let argType := (x.inferType vars).get hx;
-      let dom := fType.funDom?.get hdom;
-        dom = argType ∧
-        fType.funCodom? = some τ := by
-  apply Iff.intro
-  · intro h
-    simp [inferType] at h
-    option_elim
-    grind
-  · intro ⟨hf, hx, hdom, H⟩
-    simp [Option.isSome_iff_exists] at hf hx hdom
-    grind [inferType]
-
-theorem PExpr.inferType_lam_eq_some_iff {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
-    [DecidableEq BaseType] [DecidableEq (PType BaseType)]
-    (vars : VarMap BaseType) (name : Name) (varType : PType BaseType) (body : PExpr Const BaseType) (τ : PType BaseType) :
-    (PExpr.lam name varType body).inferType vars = some τ ↔
-      ∃ hcodom, τ.funDom? = varType ∧ τ.funCodom?.get hcodom = body.inferType (vars.push (name, varType)) := by
-  apply Iff.intro
-  · intro h
-    simp [inferType] at h
-    option_elim
-    grind [PType.funCodom?, PType.funDom?]
-  · intro ⟨hcodom, H⟩
-    grind [PType.type_fun_eq_dom_codom, inferType]
-
-def PExpr.interp {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
-    [BasedType BaseType] [Interp BaseType Const] [DecidableEq BaseType] [DecidableEq (PType BaseType)]
-    (vars : VarMap BaseType) : (e : PExpr Const BaseType) →
-    (he : (e.inferType vars).isSome) →
-    DVector (Array.toList (vars.map (·.2.type))) →
-    (Option.get (e.inferType vars) he).type
-| .const c, _, _ => Interp.interp (BaseType := BaseType) (Const := Const) c
-| .letE name val body, he, ctx =>
-    match hh : val.inferType vars with
-    | some valType =>
-        have hbody : (body.inferType (vars.push ⟨name, valType⟩)).isSome = true := by
-          simpa [PExpr.inferType, hh] using he
-        cast (by simp [PExpr.inferType, hh]) <|
-          body.interp (vars.push ⟨name, valType⟩) hbody
-            (cast (by simp [hh]) <| ctx.push (val.interp vars (by simp [hh]) ctx))
-    | none => by
-        simp [PExpr.inferType, Option.isSome_bind] at he
-        grind only [= Option.any_none]
-| .var name, he, ctx =>
-    match h : Array.findLastFinIdx? (fun x => x.1 == name) vars with
-    | some x =>
-        have hfind : (Map.Array.findLast? (fun x => decide (x.fst = name)) vars).isSome = true := by
-          simp only [inferType, Map.get, Option.isSome_map] at he
-          exact he
-        cast (by
-          simp [PExpr.inferType, Map.get]
-          calc
-              _ = ((Map.Array.findLast? (fun x => decide (x.fst = name)) vars).get hfind).2.type := by
-                have : x = (some x).get rfl := rfl
-                rw [this]
-                simp [← h]
-                congr
-                simp only [Map.Array.findLast?, Array.findLastFinIdx?]
-                simp [Array.find?_eq_getElem_findFinIdx?]
-                congr
-                rw [Fin.val_cast, Fin.sub_val_of_le]
-                simp [Fin.val_last'_eq]
-                grind
-                have : NeZero (Array.size vars) := ⟨by
-                  have := x.isLt
-                  grind
-                ⟩
-                exact Fin.le_last' _
-              _ = _ := by
-                simp [Map.Array.findLast?]
-        ) (ctx.get (Fin.cast (by
-          simp only [Array.toList_map, List.length_map, Array.length_toList]
-        ) x))
-    | none => by
-        simp only [inferType, Map.get, Map.Array.findLast?, Option.isSome_map] at he
-        simp only [Array.findLastFinIdx?, Option.map_eq_none_iff] at h
-        grind only [= Option.isSome_none, = Array.find?_eq_none, = Array.findFinIdx?_eq_none_iff,
-          = Array.size_reverse]
-| .app f arg, he, ctx =>
-    match hfType : f.inferType vars with
-    | some fType =>
-        match hdom : fType.funDom?, hcodom : fType.funCodom? with
-        | some dom, some codom =>
-            if hdom' : (fType.funDom? = some dom) then
-                cast (by {
-                    rw [welltyped_app_iff] at he
-                    option_elim
-                    expose_names
-                    simp only [inferType, hfType, hdolift, Option.bind_some, hdom]
-                    grind
-                }) <|
-                (cast (β := dom.type → codom.type) (by {
-                    simp [inferType, Option.isSome_bind, Option.any_eq_true_iff_get] at he
-                    have : inferType vars f = some (.fun dom codom) := by
-                        rw [hfType, PType.type_fun_eq_dom_codom fType dom codom hdom hcodom]
-                    simp [this, PType.type]
-                }) <| f.interp vars (by grind [inferType]) ctx) (cast (β := dom.type) (by {
-                    simp only [inferType] at he
-                    option_elim
-                    grind [PType.funCodom?, PType.funDom?]
-                }) <| arg.interp vars (by {
-                    simp only [inferType, Option.isSome_bind, Option.any_eq_true_iff_get] at he
-                    grind only
-                }) ctx)
-            else
-                (by grind)
-        | some dom, none => (by grind [PType.dom_isSome_iff_codom_isSome])
-        | none, some dom => (by grind [PType.dom_isSome_iff_codom_isSome])
-        | none, none => (by {
-            apply False.elim
-            simp only [inferType, hfType, Option.bind_some] at he
-            option_elim
-            grind
-        })
-    | none => by simp [inferType, hfType] at he
-| .lam name valType body, he, ctx =>
-    cast (by simp [PExpr.inferType, PType.type]) <|
-      fun val : valType.type =>
-        body.interp (vars.push ⟨name, valType⟩) (by
-          simp [PExpr.inferType, Option.isSome_bind] at he
-          grind
-        ) (cast (by simp) <| ctx.push val)
-
-def PExpr.interp! {Const : Type} {BaseType : Type} [Typed Const (PType BaseType)]
-    [BasedType BaseType] [Interp BaseType Const] [DecidableEq BaseType] [DecidableEq (PType BaseType)]
-    (vars : VarMap BaseType) :
-    (e : PExpr Const BaseType) → DVector (Array.toList (vars.map (·.2.type))) →
-    (match e.inferType vars with
-    | some ty => ty.type
-    | none => Unit) := fun e ctx =>
-    match he : e.inferType vars with
-    | some ty => cast (by simp only [he, Option.get_some]) (e.interp vars (by simp [he]) ctx)
-    | none => ()
+def RawPExpr.toPExpr {BaseType Const} [DecidableEq BaseType] [Typed Const (PType BaseType)] (ctxRaw : List (Name × PType BaseType)) :
+  (e : RawPExpr Const BaseType) → (he : (e.inferType ctxRaw).isSome) →
+    (PExpr Const BaseType (ctxRaw.map (·.2)) ((e.inferType ctxRaw).get he))
+| var x, he =>
+  let xi := (ctxRaw.findFinIdx? (·.1 == x)).get (by grind [inferType])
+  let ctx := ctxRaw.map (·.2)
+  have hctx : ctxRaw.length = ctx.length := by simp [ctx]
+  let varTy : PType BaseType := ctx.get (Fin.cast hctx xi)
+  let e : PExpr Const BaseType ctx (ctx.get (Fin.cast hctx xi)) :=
+    PExpr.var (Fin.cast hctx xi)
+  cast (by {
+    congr
+    simp [ctx, inferType, List.find?_eq_map_findFinIdx?_getElem, xi]
+  }) e
+| app f a, he =>
+  have hfT := by
+    grind [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff]
+  have : (inferType ctxRaw f) = (f.inferType ctxRaw).get hfT := by grind
+  match hf : (f.inferType ctxRaw).get hfT with
+  | .fun dom codom =>
+    let ctx := ctxRaw.map (·.2)
+    have ha : (a.inferType ctxRaw).isSome := by
+      simp only [inferType, Option.pure_def, Option.bind_eq_bind, Option.bind_fun_none] at he
+      rw [this, hf] at he
+      grind [Option.isSome_iff_exists, Option.bind_eq_some_iff]
+    let aT := (a.inferType ctxRaw).get ha
+    let a' : PExpr Const BaseType ctx aT := a.toPExpr ctxRaw ha
+    have hdom : dom = aT := by
+      simp only [inferType, Option.pure_def, Option.bind_eq_bind, Option.bind_fun_none] at he
+      rw [this, hf] at he
+      grind [Option.isSome_iff_exists, Option.bind_eq_some_iff]
+    have hf : (f.inferType ctxRaw).isSome := by
+      simp only [inferType, Option.pure_def, Option.bind_eq_bind, Option.bind_fun_none] at he
+      rw [this, hf] at he
+      grind [Option.isSome_iff_exists, Option.bind_eq_some_iff]
+    let f' : PExpr Const BaseType ctx (.fun aT codom) := cast (by grind) (f.toPExpr ctxRaw hf)
+    let e : PExpr Const BaseType ctx codom := .app f' a'
+    cast (by grind [inferType]) e
+  | .prod _ _ | .ofBase _ => by
+    simp [inferType] at he
+    rw [this, hf] at he
+    simp at he
+| lam varname vartype body, he =>
+  cast (by grind [inferType]) <|
+    PExpr.lam vartype (body.toPExpr ((varname, vartype)::ctxRaw) (by grind [inferType]))
+| letE x v body, he =>
+  have hv : (v.inferType ctxRaw).isSome := by
+    grind [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff]
+  let vT := (v.inferType ctxRaw).get hv
+  let v' := v.toPExpr ctxRaw hv
+  have hbody : (inferType ((x, vT) :: ctxRaw) body).isSome := by
+    grind [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff]
+  cast (by grind [inferType]) <|
+    PExpr.letE v' (body.toPExpr ((x, vT)::ctxRaw) hbody)
+| const c, he => .const c

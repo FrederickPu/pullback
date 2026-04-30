@@ -7,11 +7,11 @@ open Std
 
 open Lean Meta Elab Term PrettyPrinter Delaborator
 
-declare_syntax_cat pexpr
+declare_syntax_cat rpexpr
 declare_syntax_cat ptype
 
 syntax "ptype{" ptype "}" : term
-syntax "pexpr{" pexpr "}" : term
+syntax "rpexpr{" rpexpr "}" : term
 
 namespace PType
 
@@ -33,25 +33,27 @@ end PType
 
 namespace PExpr
 
-syntax ident : pexpr
-syntax:50 pexpr:50 pexpr:51 : pexpr
-syntax "fun" ident ":" ptype "=>" pexpr : pexpr
-syntax "let" ident ":=" pexpr "in" pexpr : pexpr
-syntax "(" pexpr ")" : pexpr
-syntax "`(" term ")" : pexpr
-syntax "c(" term ")" : pexpr
+syntax ident : rpexpr
+syntax:50 rpexpr:50 rpexpr:51 : rpexpr
+syntax "fun" ident ":" ptype "=>" rpexpr : rpexpr
+syntax "let" ident ":=" rpexpr "in" rpexpr : rpexpr
+syntax "(" rpexpr ")" : rpexpr
+syntax "`(" term ")" : rpexpr
+syntax "c(" term ")" : rpexpr
 
 macro_rules
-  | `(pexpr{$x:ident}) =>
-      `(PExpr.var $(Quote.quote x.getId))
-  | `(pexpr{$f $x}) =>
-      `(PExpr.app pexpr{$f} pexpr{$x})
-  | `(pexpr{fun $x : $tx => $body}) =>
-      `(PExpr.lam $(Quote.quote x.getId) ptype{$tx} pexpr{$body})
-  | `(pexpr{let $x := $v in $b}) =>
-      `(PExpr.letE $(mkIdent x.getId) pexpr{$v} pexpr{$b})
-  | `(pexpr{($x)}) => `(pexpr{$x})
-  | `(pexpr{`($x)}) => `($x)
-  | `(pexpr{c($x)}) => `(PExpr.const $x)
+| `(rpexpr{$x:ident}) =>
+    `(RawPExpr.var $(Quote.quote x.getId))
+| `(rpexpr{$f $x}) =>
+    `(RawPExpr.app rpexpr{$f} rpexpr{$x})
+| `(rpexpr{fun $x : $tx => $body}) =>
+      `(RawPExpr.lam $(Quote.quote x.getId) ptype{$tx}
+          rpexpr{$body})
+| `(rpexpr{let $x := $v in $b}) =>
+      `(RawPExpr.letE $(Quote.quote x.getId) rpexpr{$v}
+          rpexpr{$b})
+| `(rpexpr{($x)}) => `(rpexpr{$x})
+| `(rpexpr{`($x)}) => `($x)
+| `(rpexpr{c($x)}) => `(RawPExpr.const $x)
 
 end PExpr
