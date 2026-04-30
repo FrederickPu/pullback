@@ -2,7 +2,6 @@ import Lean
 import Mathlib.Logic.ExistsUnique
 import Mathlib.Data.Fin.Tuple.Basic
 import Pullback.Shallow.Fix
-import Pullback.P.Util
 
 open Lean
 

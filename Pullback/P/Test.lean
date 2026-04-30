@@ -44,12 +44,21 @@ instance : Typed LinalgConst T where
         (.fun (.ofBase (.tensor [k, n]))
           (.ofBase (.tensor [m, n])))
 
-#check
-  (rpexpr{
+def grrr := (rpexpr{
     fun x : b(.tensor [2, 3]) =>
       fun y : b(.tensor [3, 5]) =>
-        c(.matmul 2 3 5) x y
+        c(.matmul 2 5 3) x y
   } : RawPExpr LinalgConst TensorBaseType)
+
+#reduce RawPExpr.inferType [(`x, (PType.ofBase (TensorBaseType.tensor [2, 3]))), (`y, (PType.ofBase (TensorBaseType.tensor [3, 5])))] (((RawPExpr.const (LinalgConst.matmul 2 5 3)).app (RawPExpr.var `x)).app (RawPExpr.var `y))
+/--
+info:
+lam (PType.ofBase (TensorBaseType.tensor [2, 3]))
+  (lam (PType.ofBase (TensorBaseType.tensor [3, 5]))
+    (((const (LinalgConst.matmul 2 5 3)).app (var ⟨1, ⋯⟩)).app (var ⟨0, ⋯⟩)))
+-/
+#guard_msgs (info) in
+#reduce (RawPExpr.toPExpr [] grrr rfl)
 
 #check
   RawPExpr.lam `x (PType.ofBase (TensorBaseType.tensor [2, 3]))
