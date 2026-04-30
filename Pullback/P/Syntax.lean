@@ -34,7 +34,7 @@ end PType
 namespace PExpr
 
 syntax ident : pexpr
-syntax:50 pexpr:51 pexpr:52 : pexpr
+syntax:50 pexpr:50 pexpr:51 : pexpr
 syntax "fun" ident ":" ptype "=>" pexpr : pexpr
 syntax "let" ident ":=" pexpr "in" pexpr : pexpr
 syntax "(" pexpr ")" : pexpr

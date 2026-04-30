@@ -56,3 +56,12 @@ instance : Typed LinalgConst T where
   ((PExpr.lam `y (PType.ofBase (TensorBaseType.tensor [3, 5]))
         ((PExpr.const (LinalgConst.matmul 2 3 5)).app (PExpr.var `x))).app
     (PExpr.var `y))
+
+def test_app_assoc :
+  (pexpr{f a b} :
+    PExpr LinalgConst TensorBaseType)
+  =
+  PExpr.app
+    (PExpr.app (PExpr.var `f) (PExpr.var `a))
+    (PExpr.var `b)
+:= rfl
