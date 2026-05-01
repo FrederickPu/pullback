@@ -203,12 +203,38 @@ def lower
         let matmul' := cast (congrArg _ this) g'
         let A' := lower ctx A
         let B' := lower ctx B
-        let womp (A' B'): PExpr.RawPExpr SCFConst SCFBaseType := rpexpr{fun i : b(.fin m) => fun j : b(.fin n) =>
-          c(.foldl k) (fun acc : b(.float) => fun t : b(.fin k) => (c(.add) acc) ((c(.mul) ((`(A') i) t)) ((`(B') t) j)))
+        let womp : PExpr.RawPExpr SCFConst SCFBaseType := rpexpr{fun A' : `((T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))) => fun B' : `((T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))) => fun i : b(.fin m) => fun j : b(.fin n) =>
+          c(.foldl k) (fun acc : b(.float) => fun t : b(.fin k) => (c(.add) acc) (c(.mul) (A' i t) (B' t j))) c(.float 0)
         }
-        cast (by {
-          simp [T.toS]
-        }) <| (matmul'.app A).app B
+        have hwomp : (PExpr.RawPExpr.inferType [] womp).isSome := by
+          simp [womp, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf, PExpr.RawPExpr.inferType]
+        let womp' : SCFExpr [] (
+    (((PType.ofBase (SCFBaseType.fin m)).fun
+          ((PType.ofBase (SCFBaseType.fin k)).fun (PType.ofBase SCFBaseType.float))).fun
+      (((PType.ofBase (SCFBaseType.fin k)).fun
+            ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float))).fun
+        ((PType.ofBase (SCFBaseType.fin m)).fun
+          ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float)))))) := cast (by {
+              simp [womp, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf, PExpr.RawPExpr.inferType, T.toS, SCFExpr]
+            }) (womp.toPExpr [] hwomp)
+        -- TODO :: add tactic for drafting simped values by expanding stuff automatically
+  --       have : womp.inferType [] = sorry := by {
+  --         simp [womp, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf, PExpr.RawPExpr.inferType, Typed.type]
+  --         /-
+  --            some
+  --   (((PType.ofBase (SCFBaseType.fin m)).fun
+  --         ((PType.ofBase (SCFBaseType.fin k)).fun (PType.ofBase SCFBaseType.float))).fun
+  --     (((PType.ofBase (SCFBaseType.fin k)).fun
+  --           ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float))).fun
+  --       ((PType.ofBase (SCFBaseType.fin m)).fun
+  --         ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float))))) =
+  -- sorry
+  --         -/
+  --       }
+        have : ty = .ofBase (.tensor [m, n]) := by {
+
+        }
+        cast (by simp [T.toS, this, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]) (((PExpr.lift womp').app A').app B')
       | _ => sorry
     | _, _ => sorry
   | _ => sorry
