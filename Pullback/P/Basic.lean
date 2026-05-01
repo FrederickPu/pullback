@@ -177,3 +177,51 @@ def RawPExpr.toPExpr {BaseType Const} [DecidableEq BaseType] [Typed Const (PType
   cast (by grind [inferType]) <|
     PExpr.letE v' (body.toPExpr ((x, vT)::ctxRaw) hbody)
 | const c, he => .const c
+
+class HasType {Const BaseType} [DecidableEq BaseType] [Typed Const (PType BaseType)] (ctxRaw : List (Name × PType BaseType)) (e : RawPExpr (Const := Const) (BaseType := BaseType)) (ty : outParam (PType BaseType)) where
+  hasType : e.inferType ctxRaw = ty
+
+def RawPExpr.toPExpr' {BaseType Const} [DecidableEq BaseType] [Typed Const (PType BaseType)] (ctxRaw : List (Name × PType BaseType)) (ty : PType BaseType) :
+  (e : RawPExpr Const BaseType) → [HasType ctxRaw e ty] →
+    (PExpr Const BaseType (ctxRaw.map (·.2)) ty) :=
+  fun e he =>
+    cast (by grind [HasType]) (e.toPExpr ctxRaw (by grind [HasType]))
+
+namespace RawPExpr
+
+variable {BaseType Const} [DecidableEq BaseType] [Typed Const (PType BaseType)]
+
+theorem hasType_var (ty : PType BaseType) (ctxRaw : List (Name × PType BaseType)) (name : Name)
+    (hname : (ctxRaw.find? (·.1 == name)) = some (name, ty)) :
+  HasType ctxRaw (RawPExpr.var name : RawPExpr Const BaseType) ty :=
+  ⟨by simpa [inferType] using congrArg (Option.map Prod.snd) hname⟩
+
+instance instHasType_const (ctxRaw : List (Name × PType BaseType)) (c : Const) :
+  HasType ctxRaw (RawPExpr.const c : RawPExpr Const BaseType) (Typed.type c) :=
+  ⟨by simp [inferType]⟩
+
+instance instHasType_lam (ctxRaw : List (Name × PType BaseType)) (x : Name) (argT bodyT : PType BaseType)
+    (body : RawPExpr Const BaseType) [HasType ((x, argT)::ctxRaw) body bodyT] :
+  HasType ctxRaw (RawPExpr.lam x argT body : RawPExpr Const BaseType) (PType.fun argT bodyT) :=
+  ⟨by
+    have hbody : inferType ((x, argT) :: ctxRaw) body = some bodyT :=
+      HasType.hasType (ctxRaw := ((x, argT) :: ctxRaw)) (e := body) (ty := bodyT)
+    simp [inferType, hbody]
+  ⟩
+
+instance instHasType_letE (ctxRaw : List (Name × PType BaseType)) (x : Name)
+    (v body : RawPExpr Const BaseType) (vT bodyT : PType BaseType)
+    [HasType ctxRaw v vT] [HasType ((x, vT)::ctxRaw) body bodyT] :
+  HasType ctxRaw (RawPExpr.letE x v body : RawPExpr Const BaseType) bodyT :=
+  ⟨by
+    have hv : inferType ctxRaw v = some vT :=
+      HasType.hasType (ctxRaw := ctxRaw) (e := v) (ty := vT)
+    have hbody : inferType ((x, vT) :: ctxRaw) body = some bodyT :=
+      HasType.hasType (ctxRaw := ((x, vT) :: ctxRaw)) (e := body) (ty := bodyT)
+    simp [inferType, hv, hbody]
+  ⟩
+
+instance instHasType_app (ctxRaw : List (Name × PType BaseType)) (dom codom : PType BaseType) (f x : RawPExpr Const BaseType) [HasType ctxRaw f (PType.fun dom codom)] [HasType ctxRaw x dom] :
+  HasType ctxRaw (RawPExpr.app f x) codom :=
+  ⟨by simp [inferType]; grind [HasType]⟩
+end RawPExpr
