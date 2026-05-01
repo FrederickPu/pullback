@@ -35,6 +35,11 @@ class Interp (BaseType : Type) (Const : Type) [BasedType BaseType] [Typed Const 
   interp : ∀ c : Const, PType.type (BaseType := BaseType) (Typed.type (α := Const) (A := PType BaseType) c)
 
 inductive PExpr (Const BaseType : Type) [Typed Const (PType BaseType)] : List (PType BaseType) → PType BaseType → Type where
+/-
+  add unused context variables to the outside. Eg if `0 ⊢ f 0` is valid then `1 0 ⊢ f 0` is certainly valid.
+  Note that the inner most context variable is the left most element of the context list
+-/
+| lift {ty} {ctx ctx'} (e : PExpr Const BaseType ctx ty) : PExpr Const BaseType (ctx ++ ctx') ty
 | const {ctx} (c : Const): PExpr Const BaseType ctx (Typed.type c)
 | letE {ctx} {valT} {ty} (val : PExpr Const BaseType ctx valT) (body : PExpr Const BaseType (valT::ctx) ty) : PExpr Const BaseType ctx ty
 | var {ctx} (name : Fin ctx.length) : PExpr Const BaseType ctx (ctx.get name)
