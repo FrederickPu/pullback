@@ -66,6 +66,16 @@ def push {L: Array Type} {α : Type} (dv : DVector L.toList) (a : α) : DVector 
       let (x, xs) := dv
       (x, push xs a)
 
+def take {BaseType : Type} [BasedType BaseType] {ctx : List (PType BaseType)} : (n : Nat) → DVector (ctx.map (·.type)) → DVector ((ctx.take n).map (·.type))
+| 0, _ => ()
+| n+1, v =>
+  match ctx with
+  | [] => ()
+  | (_ :: _) =>
+      let (x, xs) := v
+      let xs' := take n xs
+      (x, xs')
+
 def get : {L : List Type} → (v : DVector L) → (i : Fin L.length) → L.get i
 | _::_, (va, _), ⟨0, _⟩ => va
 | _::_, (_, dv), ⟨i+1, h⟩ => get dv ⟨i, Nat.lt_of_succ_lt_succ h⟩
@@ -73,6 +83,7 @@ def get : {L : List Type} → (v : DVector L) → (i : Fin L.length) → L.get i
 end DVector
 
 def PExpr.interp {Const BaseType : Type} [BasedType BaseType] [Typed Const (PType BaseType)] [Interp BaseType Const] {ctx} {ty} (args : DVector (ctx.map (·.type))) : (e : PExpr Const BaseType ctx ty) → ty.type
+| lift (ctx := ctx) e => e.interp (ctx := ctx) (cast (by simp) (args.take ctx.length))
 | const c => Interp.interp c
 | letE val body =>
   body.interp (DVector.cons' (val.interp args) args)
