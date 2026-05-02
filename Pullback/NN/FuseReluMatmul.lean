@@ -162,7 +162,21 @@ def ctxS (ctxL : List (Name × T)) := ctxL.map (fun (x, v) => (x, T.toS v))
 
 open PExpr
 
-def reluSCF {ctx} (shape : List Nat) : {x : RawPExpr SCFConst SCFBaseType // HasType ctx x (.fun (LinalgBaseType.tensor_toscf shape) (LinalgBaseType.tensor_toscf shape))} := sorry
+def reluSCF {ctx} : (shape : List Nat) → {x : RawPExpr SCFConst SCFBaseType // HasType ctx x (.fun (LinalgBaseType.tensor_toscf shape) (LinalgBaseType.tensor_toscf shape))}
+| [] => ⟨(RawPExpr.const SCFConst.relu), by infer_instance⟩
+| a::l =>
+  let ⟨reluL, hreluL⟩ := reluSCF (ctx := ctx) l
+  -- note: can think of the quoted `reluL'` as being a placeholder fo the actual reluL this way inferType will have nice reduction rules wihtout needing to use `hreluL` which can be unstable for simp
+  -- (we use a similar trick for matmulrelufuse case and matmul case of `lowerRaw`)
+  let outAux : RawPExpr SCFConst SCFBaseType :=
+    rpexpr{fun reluL' : `(ptype{`(LinalgBaseType.tensor_toscf l) ->
+    `(LinalgBaseType.tensor_toscf l)}) => fun x : `(ptype{b(.fin a) -> `(LinalgBaseType.tensor_toscf l)}) => fun i : b(.fin a) => reluL' (x i)}
+  have houtAux : HasType ctx outAux ((PType.fun (LinalgBaseType.tensor_toscf l) (LinalgBaseType.tensor_toscf l)).fun
+      (((PType.ofBase (SCFBaseType.fin a)).fun (LinalgBaseType.tensor_toscf l)).fun
+        ((PType.ofBase (SCFBaseType.fin a)).fun (LinalgBaseType.tensor_toscf l)))) := by
+    apply HasType.mk
+    simp [outAux, RawPExpr.inferType]
+  ⟨outAux.app reluL, by infer_instance⟩
 
 /-
   todo :: make a general purpose lowering functions that takes in a Const.lower along with a `preprocess : RawPExpr → (k : RawPExpr → RawPExpr) → Option RawPExpr`
