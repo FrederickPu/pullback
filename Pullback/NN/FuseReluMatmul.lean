@@ -178,160 +178,266 @@ def reluSCF {ctx} : (shape : List Nat) → {x : RawPExpr SCFConst SCFBaseType //
     simp [outAux, RawPExpr.inferType]
   ⟨outAux.app reluL, by infer_instance⟩
 
-/-
-  todo :: make a general purpose lowering functions that takes in a Const.lower along with a `preprocess : RawPExpr → (k : RawPExpr → RawPExpr) → Option RawPExpr`
-  (use the continutation passing recursor pattern) function
-  - it will lower the expr normally and call Const.lower for the const lowering
-  - and preprocosses will return some if non trivial lowering is done (not just const, ie optimizaiton pass eg: FuseReluMatmul)
+example {m n k : Nat} : ((RawPExpr.const (LinalgConst.matmul m n k) : RawPExpr LinalgConst LinalgBaseType).toPExpr [] (by simp [RawPExpr.inferType])).interp (cast (by simp [DVector]) Unit.unit) = matmul := by
+  rfl
 
-  todo:: add faifullness of lowering condition to subtype property (ie interping the lowered result gives the same result and interping the original)
--/
-def lowerRaw : (ctxL : List (Name × T)) → (ty : T) → (e : RawPExpr LinalgConst LinalgBaseType) →
-  [h : HasType ctxL e ty] → {x : RawPExpr SCFConst SCFBaseType // HasType (ctxS ctxL) x (T.toS ty)}
-| ctx, ty, .app (.const (.relu shape)) (.app (.app (.const (.matmul m n k)) A) B), ⟨he⟩ =>
-  have ⟨hshape, hA, hB, hty⟩ : shape = [m, n] ∧
-    HasType ctx A (PType.ofBase (LinalgBaseType.tensor [m, k])) ∧
-    HasType ctx B (PType.ofBase (LinalgBaseType.tensor [k, n])) ∧
-    ty = PType.ofBase (LinalgBaseType.tensor [m, n]) := by
-    simp only [RawPExpr.inferType, Option.pure_def, Option.bind_eq_bind, Option.bind_fun_none,
-      Option.bind_some, Option.bind_eq_some_iff, Option.ite_none_right_eq_some, Option.some.injEq,
-      ↓existsAndEq, true_and, and_true, PType.ofBase.injEq, LinalgBaseType.tensor.injEq] at he
-    grind [HasType]
-  let ⟨A', ⟨hA'⟩⟩ := lowerRaw ctx (PType.ofBase (LinalgBaseType.tensor [m, k])) A
-  let ⟨B', hB'⟩ := lowerRaw ctx (PType.ofBase (LinalgBaseType.tensor [k, n])) B
-  let outAux : RawPExpr SCFConst SCFBaseType := rpexpr{
+theorem wee {m n k : Nat} : (rpexpr{fun A : b(.tensor [m, k]) => fun B : b(.tensor [k, n]) => c(.relu [m, n]) (c(.matmul m n k) A B)} : RawPExpr LinalgConst LinalgBaseType).inferType [] = sorry := by {
+  sorry
+}
+example {m n k : Nat} :
+  let : HasType []
+    (RawPExpr.lam `A (PType.ofBase (LinalgBaseType.tensor [m, k]))
+      (RawPExpr.lam `B (PType.ofBase (LinalgBaseType.tensor [k, n]))
+        ((RawPExpr.const (LinalgConst.relu [m, n])).app
+          (((RawPExpr.const (LinalgConst.matmul m n k)).app (RawPExpr.var `A)).app (RawPExpr.var `B)))))
+    ((PType.ofBase (LinalgBaseType.tensor [m, k])).fun
+      ((PType.ofBase (LinalgBaseType.tensor [k, n])).fun (PType.ofBase (LinalgBaseType.tensor [m, n])))) := sorry
+  ((rpexpr{fun A : b(.tensor [m, k]) => fun B : b(.tensor [k, n]) => c(.relu [m, n]) (c(.matmul m n k) A B)} : RawPExpr LinalgConst LinalgBaseType).toPExpr' [] (((PType.ofBase (LinalgBaseType.tensor [m, k])).fun
+      ((PType.ofBase (LinalgBaseType.tensor [k, n])).fun (PType.ofBase (LinalgBaseType.tensor [m, n])))))).interp (cast (by simp [DVector]) Unit.unit) = fun A : (NDArray Float [m, k]) => fun B : NDArray Float [k, n] => NDArray.map relu (matmul A B)  := by
+  have : HasType [(`A, PType.ofBase (LinalgBaseType.tensor [m, k]))]
+    (RawPExpr.lam `B (PType.ofBase (LinalgBaseType.tensor [k, n]))
+      ((RawPExpr.const (LinalgConst.relu [m, n])).app
+        (((RawPExpr.const (LinalgConst.matmul m n k)).app (RawPExpr.var `A)).app (RawPExpr.var `B))))
+    ((PType.ofBase (LinalgBaseType.tensor [k, n])).fun (PType.ofBase (LinalgBaseType.tensor [m, n]))) := by
+    apply HasType.mk
+    simp [RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go]
+  rw! [PExpr.toPExpr'_lam]
+  have : HasType [(`B, PType.ofBase (LinalgBaseType.tensor [k, n])), (`A, PType.ofBase (LinalgBaseType.tensor [m, k]))]
+    ((RawPExpr.const (LinalgConst.relu [m, n])).app
+      (((RawPExpr.const (LinalgConst.matmul m n k)).app (RawPExpr.var `A)).app (RawPExpr.var `B)))
+    (PType.ofBase (LinalgBaseType.tensor [m, n])) := by
+    apply HasType.mk
+    simp [RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go]
+  rw! [PExpr.toPExpr'_lam]
+  have : HasType [(`B, PType.ofBase (LinalgBaseType.tensor [k, n])), (`A, PType.ofBase (LinalgBaseType.tensor [m, k]))]
+    (((RawPExpr.const (LinalgConst.matmul m n k)).app (RawPExpr.var `A)).app (RawPExpr.var `B))
+    (PType.ofBase (LinalgBaseType.tensor [m, n])) := by
+    apply HasType.mk
+    simp [RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go]
+  rw! [PExpr.toPExpr'_app]
+  have : HasType [(`B, PType.ofBase (LinalgBaseType.tensor [k, n])), (`A, PType.ofBase (LinalgBaseType.tensor [m, k]))]
+    ((RawPExpr.const (LinalgConst.matmul m n k)).app (RawPExpr.var `A))
+    (PType.fun (.ofBase (LinalgBaseType.tensor [k, n])) (PType.ofBase (LinalgBaseType.tensor [m, n]))) := by
+    apply HasType.mk
+    simp [RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go]
+  rw! [PExpr.toPExpr'_app]
+  have :  HasType [(`B, PType.ofBase (LinalgBaseType.tensor [k, n])), (`A, PType.ofBase (LinalgBaseType.tensor [m, k]))] (RawPExpr.var `A : RawPExpr LinalgConst LinalgBaseType) (PType.ofBase (LinalgBaseType.tensor [m, k])) := by
+    apply HasType.mk
+    simp [RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go]
+  rw! [PExpr.toPExpr'_app]
+  have :  HasVar [(`B, PType.ofBase (LinalgBaseType.tensor [k, n])), (`A, PType.ofBase (LinalgBaseType.tensor [m, k]))] `A
+    (PType.ofBase (LinalgBaseType.tensor [m, k])) := by
+      apply HasVar.mk
+      rfl
+  rw! [PExpr.toPExpr'_var]
+  have :  HasVar [(`B, PType.ofBase (LinalgBaseType.tensor [k, n])), (`A, PType.ofBase (LinalgBaseType.tensor [m, k]))] `B
+    (PType.ofBase (LinalgBaseType.tensor [k, n])) := by
+      apply HasVar.mk
+      rfl
+  rw! [PExpr.toPExpr'_var]
+  rfl
+
+-- todo :: have a nice definition/command elaborator that automatically gives you the inferType theorem when you declar the rpexpr
+-- (this will require fixing some of the reflexivity issues with inferType)
+def matmulReluSCF (m n k : Nat) : RawPExpr SCFConst SCFBaseType := rpexpr{
     fun A' : `((T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))) => fun B' : `((T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))) =>
     fun i : b(.fin m) => fun j : b(.fin n) =>
       c(.relu) (c(.foldl k) (fun acc : b(.float) => fun t : b(.fin k) => (c(.add) acc) (c(.mul) (A' i t) (B' t j))) c(.float 0))
     }
-  have : HasType (ctxS ctx) outAux ((((PType.ofBase (SCFBaseType.fin m)).fun
+
+-- todo :: modify inferType so that rfl can close this
+-- (it should be possible since `m n k` are parametric arguments so you never check against them or have any unfold steps that depend on their value)
+theorem inferType_matmulReluSCF {ctx : List (Name × S)} {m n k} : RawPExpr.inferType ctx (matmulReluSCF m n k) = ((((PType.ofBase (SCFBaseType.fin m)).fun
             ((PType.ofBase (SCFBaseType.fin k)).fun (PType.ofBase SCFBaseType.float))).fun
         (((PType.ofBase (SCFBaseType.fin k)).fun
               ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float))).fun
           ((PType.ofBase (SCFBaseType.fin m)).fun
             ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float)))))) := by
-    apply HasType.mk
-    simp [RawPExpr.inferType, outAux, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf, PExpr.RawPExpr.inferType, T.toS, ctxS, Typed.type]
-  let out := (outAux.app A').app B'
-  have hA' : HasType (ctxS ctx) A' ((PType.ofBase (SCFBaseType.fin m)).fun
-        ((PType.ofBase (SCFBaseType.fin k)).fun (PType.ofBase SCFBaseType.float))) := by
-    simp only [T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf] at hA'
-    grind [HasType]
-  have hB' : HasType (ctxS ctx) B' ((PType.ofBase (SCFBaseType.fin k)).fun
-        ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float))) := by
-    simp only [T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf] at hB'
-    grind [HasType]
-  have hout : HasType (ctxS ctx) out (T.toS (PType.ofBase (LinalgBaseType.tensor [m, n]))) := by
-    simp only [T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
-    infer_instance
-  ⟨out, by rw [hty]; infer_instance⟩
-| ctx, ty, .const c, ⟨he⟩ =>
-  match c with
-  | .float f => ⟨.const (SCFConst.float f), (by {
-    apply HasType.mk
-    simp only [RawPExpr.inferType, Typed.type, Option.some.injEq] at he
-    simp [RawPExpr.inferType, Typed.type, ← he, T.toS, LinalgBaseType.toSCF]
-  })⟩
-  | .relu shape =>
-    have hty : ty = .fun (.ofBase (LinalgBaseType.tensor shape)) (.ofBase (LinalgBaseType.tensor shape)) := by
-      simp only [RawPExpr.inferType, Typed.type, Option.some.injEq] at he
-      grind
-    let ⟨out, hout⟩ := reluSCF (ctx := (ctxS ctx)) shape
-    ⟨out, by {
-      simp only [hty, T.toS, LinalgBaseType.toSCF]
-      grind
-    }⟩
-  | .matmul m n k =>
-    have hty : ty = .fun (PType.ofBase (LinalgBaseType.tensor [m, k])) (.fun (PType.ofBase (LinalgBaseType.tensor [k, n])) (PType.ofBase (LinalgBaseType.tensor [m, n]))) := by
-      simp only [RawPExpr.inferType, Typed.type, Option.some.injEq] at he
-      grind
-    let out : RawPExpr SCFConst SCFBaseType := rpexpr{
-    fun A' : `((T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))) => fun B' : `((T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))) =>
-    fun i : b(.fin m) => fun j : b(.fin n) =>
-      (c(.foldl k) (fun acc : b(.float) => fun t : b(.fin k) => (c(.add) acc) (c(.mul) (A' i t) (B' t j))) c(.float 0))
-    }
-    have : RawPExpr.inferType (ctxS ctx) out = ((((PType.ofBase (SCFBaseType.fin m)).fun
-          ((PType.ofBase (SCFBaseType.fin k)).fun (PType.ofBase SCFBaseType.float))).fun
-      (((PType.ofBase (SCFBaseType.fin k)).fun
-            ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float))).fun
-        ((PType.ofBase (SCFBaseType.fin m)).fun
-          ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float)))))) := by
-      simp [RawPExpr.inferType, out, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf, PExpr.RawPExpr.inferType, T.toS, ctxS, Typed.type]
-    ⟨out, (by {
-      apply HasType.mk
-      rw [this]
-      simp [hty, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
-    })⟩
-| ctx, ty, .letE name val body, ⟨he⟩ =>
-  have hvalT : (val.inferType ctx).isSome := by
-    grind [RawPExpr.inferType, Option.bind_eq_some_iff]
-  have ⟨hval, hbody⟩ :
-    HasType ctx val ((val.inferType ctx).get hvalT) ∧
-      HasType ((name, (RawPExpr.inferType ctx val).get hvalT) :: ctx) body ty := by
-    grind [HasType, RawPExpr.inferType, Option.bind_eq_some_iff]
-  let ⟨val', hval'⟩ := lowerRaw ctx ((RawPExpr.inferType ctx val).get hvalT) val
-  let ⟨body', hbody'⟩ := lowerRaw ((name, (val.inferType ctx).get hvalT)::ctx) ty body
-  ⟨.letE name val' body', by {
-    have : (ctxS ((name, (RawPExpr.inferType ctx val).get hvalT) :: ctx)) = ((name, T.toS ((RawPExpr.inferType ctx val).get hvalT))) :: (ctxS ctx) := by rfl
-    rw [this] at hbody'
-    infer_instance
-  }⟩
-| ctx, ty, .app f x, ⟨he⟩ =>
-  have hf : (f.inferType ctx).isSome := by
-    grind [RawPExpr.inferType, Option.bind_eq_some_iff]
-  let fT := (f.inferType ctx).get hf
-  match hfT : fT with
-  | .fun dom codom =>
-    have ⟨hcodom, hx⟩ : codom = ty ∧ (x.inferType ctx) = dom := by
-      simp [RawPExpr.inferType, Option.bind_eq_some_iff] at he
-      obtain ⟨fT', hfT', xT, hxT, H⟩ := he
-      have : fT' = fT := by grind
-      rw [this, hfT] at H
-      grind
-    have : HasType ctx f (dom.fun codom) := by
-      grind [HasType]
-    have : HasType ctx x dom := by
-      grind [HasType]
-    let ⟨f', hf'⟩ := lowerRaw ctx (.fun dom codom) f
-    let ⟨x', hx'⟩ := lowerRaw ctx dom x
-    ⟨f'.app x', by {
-      have : T.toS (dom.fun codom) = (T.toS dom).fun (T.toS codom) := rfl
-      rw [this, hcodom] at hf'
-      infer_instance
-    }⟩
-  | .ofBase b  | .prod alpha beta => by
-    apply False.elim
-    have : (RawPExpr.inferType ctx f) = fT := by grind
-    simp [hfT, RawPExpr.inferType, this] at he
-| ctx, ty, .lam name varType body, ⟨he⟩ =>
-  match hty : ty with
-  | .fun dom codom =>
-    have : HasType ((name, varType) :: ctx) body codom := by
-      simp only [RawPExpr.inferType, Option.map_eq_some_iff, PType.fun.injEq,
-        exists_eq_right_right] at he
-      grind [HasType]
-    let ⟨body', hbody'⟩ := lowerRaw ((name, varType)::ctx) codom body
-    have hlam : HasType (ctxS ctx) (RawPExpr.lam name (T.toS varType) body') (T.toS (dom.fun codom)) := by {
-      have : (ctxS ((name, varType) :: ctx)) = (name, T.toS varType)::(ctxS ctx) := rfl
-      rw [this] at hbody'
-      simp [T.toS]
-      grind [HasType, RawPExpr.inferType]
-    }
-    ⟨.lam name (T.toS varType) body', hlam⟩
-  | .ofBase b  | .prod alpha beta => by
-    apply False.elim
-    simp [RawPExpr.inferType] at he
-| ctx, ty, .var name, ⟨he⟩ =>
-  have hvar : HasType (ctxS ctx) (RawPExpr.var name) ty.toS := by
-    apply HasType.mk
-    simp only [RawPExpr.inferType, Option.map_eq_some_iff, Prod.exists, exists_eq_right] at he
-    simp only [RawPExpr.inferType, Option.map_eq_some_iff, Prod.exists, exists_eq_right]
-    obtain ⟨a, ha⟩ := he
-    use a
-    simp only [ctxS, List.find?_map, Option.map_eq_some_iff, Prod.mk.injEq, Prod.exists,
-      ↓existsAndEq, true_and]
-    use ty
-    simp only [and_true]
-    rw [← ha]
-    rfl
-  ⟨.var name, hvar⟩
+  simp [matmulReluSCF, RawPExpr.inferType, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf, PExpr.RawPExpr.inferType, T.toS, Typed.type]
+
+#check cast
+theorem asda (A B : PType SCFBaseType) (f x : RawPExpr SCFConst SCFBaseType) (hf : f.inferType ctx = A.fun B) (hx : x.inferType ctx = A):
+  cast (β := B.type) (by simp [RawPExpr.inferType, hf, hx]) (((f.app x).toPExpr ctx (by grind [RawPExpr.inferType])).interp args) = (cast (β := A.type → B.type) (by simp [hf, PType.type]) ((f.toPExpr ctx (by grind)).interp args)) (cast (by simp [hx]) ((x.toPExpr ctx (by grind)).interp args)) := by {
+    simp [RawPExpr.toPExpr]
+    simp [hf]
+    /-
+    ctx : List (Name × PType SCFBaseType)
+args : DVector (List.map (fun x => x.type) (List.map (fun x => x.2) ctx))
+A B : PType SCFBaseType
+f x : RawPExpr SCFConst SCFBaseType
+hf : RawPExpr.inferType ctx f = some (A.fun B)
+hx : RawPExpr.inferType ctx x = some A
+⊢ cast ⋯
+    (interp args
+      (match hf_1 : (RawPExpr.inferType ctx f).get ⋯ with
+      | dom.fun codom => cast ⋯ ((cast ⋯ (RawPExpr.toPExpr ctx f ⋯)).app (RawPExpr.toPExpr ctx x ⋯))
+      | a.prod a_1 => ⋯.elim
+      | PType.ofBase a => ⋯.elim)) =
+  cast ⋯ (interp args (RawPExpr.toPExpr ctx f ⋯)) (cast ⋯ (interp args (RawPExpr.toPExpr ctx x ⋯)))
+
+    -/
+  }
+theorem womp {m n k : Nat} {ctx : List (Name × S)} : (matmulReluSCF m n k).toPExpr ctx (by {
+rw [inferType_matmulReluSCF]
+exact Option.isSome_some
+}) = sorry := by {
+  simp [matmulReluSCF]
+}
+-- #check interp
+-- /-
+--   todo :: make a general purpose lowering functions that takes in a Const.lower along with a `preprocess : RawPExpr → (k : RawPExpr → RawPExpr) → Option RawPExpr`
+--   (use the continutation passing recursor pattern) function
+--   - it will lower the expr normally and call Const.lower for the const lowering
+--   - and preprocosses will return some if non trivial lowering is done (not just const, ie optimizaiton pass eg: FuseReluMatmul)
+
+--   todo:: add faifullness of lowering condition to subtype property (ie interping the lowered result gives the same result and interping the original)
+-- -/
+-- def lowerRaw : (ctxL : List (Name × T)) → (ty : T) → (e : RawPExpr LinalgConst LinalgBaseType) →
+--   [h : HasType ctxL e ty] → {x : RawPExpr SCFConst SCFBaseType // HasType (ctxS ctxL) x (T.toS ty)}
+-- | ctx, ty, .app (.const (.relu shape)) (.app (.app (.const (.matmul m n k)) A) B), ⟨he⟩ =>
+--   have ⟨hshape, hA, hB, hty⟩ : shape = [m, n] ∧
+--     HasType ctx A (PType.ofBase (LinalgBaseType.tensor [m, k])) ∧
+--     HasType ctx B (PType.ofBase (LinalgBaseType.tensor [k, n])) ∧
+--     ty = PType.ofBase (LinalgBaseType.tensor [m, n]) := by
+--     simp only [RawPExpr.inferType, Option.pure_def, Option.bind_eq_bind, Option.bind_fun_none,
+--       Option.bind_some, Option.bind_eq_some_iff, Option.ite_none_right_eq_some, Option.some.injEq,
+--       ↓existsAndEq, true_and, and_true, PType.ofBase.injEq, LinalgBaseType.tensor.injEq] at he
+--     grind [HasType]
+--   let ⟨A', ⟨hA'⟩⟩ := lowerRaw ctx (PType.ofBase (LinalgBaseType.tensor [m, k])) A
+--   let ⟨B', hB'⟩ := lowerRaw ctx (PType.ofBase (LinalgBaseType.tensor [k, n])) B
+--   let outAux : RawPExpr SCFConst SCFBaseType := rpexpr{
+--     fun A' : `((T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))) => fun B' : `((T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))) =>
+--     fun i : b(.fin m) => fun j : b(.fin n) =>
+--       c(.relu) (c(.foldl k) (fun acc : b(.float) => fun t : b(.fin k) => (c(.add) acc) (c(.mul) (A' i t) (B' t j))) c(.float 0))
+--     }
+--   have : HasType (ctxS ctx) outAux ((((PType.ofBase (SCFBaseType.fin m)).fun
+--             ((PType.ofBase (SCFBaseType.fin k)).fun (PType.ofBase SCFBaseType.float))).fun
+--         (((PType.ofBase (SCFBaseType.fin k)).fun
+--               ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float))).fun
+--           ((PType.ofBase (SCFBaseType.fin m)).fun
+--             ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float)))))) := by
+--     apply HasType.mk
+--     simp [RawPExpr.inferType, outAux, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf, PExpr.RawPExpr.inferType, T.toS, ctxS, Typed.type]
+--   let out := (outAux.app A').app B'
+--   have hA' : HasType (ctxS ctx) A' ((PType.ofBase (SCFBaseType.fin m)).fun
+--         ((PType.ofBase (SCFBaseType.fin k)).fun (PType.ofBase SCFBaseType.float))) := by
+--     simp only [T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf] at hA'
+--     grind [HasType]
+--   have hB' : HasType (ctxS ctx) B' ((PType.ofBase (SCFBaseType.fin k)).fun
+--         ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float))) := by
+--     simp only [T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf] at hB'
+--     grind [HasType]
+--   have hout : HasType (ctxS ctx) out (T.toS (PType.ofBase (LinalgBaseType.tensor [m, n]))) := by
+--     simp only [T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
+--     infer_instance
+--   ⟨out, by rw [hty]; infer_instance⟩
+-- | ctx, ty, .const c, ⟨he⟩ =>
+--   match c with
+--   | .float f => ⟨.const (SCFConst.float f), (by {
+--     apply HasType.mk
+--     simp only [RawPExpr.inferType, Typed.type, Option.some.injEq] at he
+--     simp [RawPExpr.inferType, Typed.type, ← he, T.toS, LinalgBaseType.toSCF]
+--   })⟩
+--   | .relu shape =>
+--     have hty : ty = .fun (.ofBase (LinalgBaseType.tensor shape)) (.ofBase (LinalgBaseType.tensor shape)) := by
+--       simp only [RawPExpr.inferType, Typed.type, Option.some.injEq] at he
+--       grind
+--     let ⟨out, hout⟩ := reluSCF (ctx := (ctxS ctx)) shape
+--     ⟨out, by {
+--       simp only [hty, T.toS, LinalgBaseType.toSCF]
+--       grind
+--     }⟩
+--   | .matmul m n k =>
+--     have hty : ty = .fun (PType.ofBase (LinalgBaseType.tensor [m, k])) (.fun (PType.ofBase (LinalgBaseType.tensor [k, n])) (PType.ofBase (LinalgBaseType.tensor [m, n]))) := by
+--       simp only [RawPExpr.inferType, Typed.type, Option.some.injEq] at he
+--       grind
+--     let out : RawPExpr SCFConst SCFBaseType := rpexpr{
+--     fun A' : `((T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))) => fun B' : `((T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))) =>
+--     fun i : b(.fin m) => fun j : b(.fin n) =>
+--       (c(.foldl k) (fun acc : b(.float) => fun t : b(.fin k) => (c(.add) acc) (c(.mul) (A' i t) (B' t j))) c(.float 0))
+--     }
+--     have : RawPExpr.inferType (ctxS ctx) out = ((((PType.ofBase (SCFBaseType.fin m)).fun
+--           ((PType.ofBase (SCFBaseType.fin k)).fun (PType.ofBase SCFBaseType.float))).fun
+--       (((PType.ofBase (SCFBaseType.fin k)).fun
+--             ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float))).fun
+--         ((PType.ofBase (SCFBaseType.fin m)).fun
+--           ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float)))))) := by
+--       simp [RawPExpr.inferType, out, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf, PExpr.RawPExpr.inferType, T.toS, ctxS, Typed.type]
+--     ⟨out, (by {
+--       apply HasType.mk
+--       rw [this]
+--       simp [hty, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
+--     })⟩
+-- | ctx, ty, .letE name val body, ⟨he⟩ =>
+--   have hvalT : (val.inferType ctx).isSome := by
+--     grind [RawPExpr.inferType, Option.bind_eq_some_iff]
+--   have ⟨hval, hbody⟩ :
+--     HasType ctx val ((val.inferType ctx).get hvalT) ∧
+--       HasType ((name, (RawPExpr.inferType ctx val).get hvalT) :: ctx) body ty := by
+--     grind [HasType, RawPExpr.inferType, Option.bind_eq_some_iff]
+--   let ⟨val', hval'⟩ := lowerRaw ctx ((RawPExpr.inferType ctx val).get hvalT) val
+--   let ⟨body', hbody'⟩ := lowerRaw ((name, (val.inferType ctx).get hvalT)::ctx) ty body
+--   ⟨.letE name val' body', by {
+--     have : (ctxS ((name, (RawPExpr.inferType ctx val).get hvalT) :: ctx)) = ((name, T.toS ((RawPExpr.inferType ctx val).get hvalT))) :: (ctxS ctx) := by rfl
+--     rw [this] at hbody'
+--     infer_instance
+--   }⟩
+-- | ctx, ty, .app f x, ⟨he⟩ =>
+--   have hf : (f.inferType ctx).isSome := by
+--     grind [RawPExpr.inferType, Option.bind_eq_some_iff]
+--   let fT := (f.inferType ctx).get hf
+--   match hfT : fT with
+--   | .fun dom codom =>
+--     have ⟨hcodom, hx⟩ : codom = ty ∧ (x.inferType ctx) = dom := by
+--       simp [RawPExpr.inferType, Option.bind_eq_some_iff] at he
+--       obtain ⟨fT', hfT', xT, hxT, H⟩ := he
+--       have : fT' = fT := by grind
+--       rw [this, hfT] at H
+--       grind
+--     have : HasType ctx f (dom.fun codom) := by
+--       grind [HasType]
+--     have : HasType ctx x dom := by
+--       grind [HasType]
+--     let ⟨f', hf'⟩ := lowerRaw ctx (.fun dom codom) f
+--     let ⟨x', hx'⟩ := lowerRaw ctx dom x
+--     ⟨f'.app x', by {
+--       have : T.toS (dom.fun codom) = (T.toS dom).fun (T.toS codom) := rfl
+--       rw [this, hcodom] at hf'
+--       infer_instance
+--     }⟩
+--   | .ofBase b  | .prod alpha beta => by
+--     apply False.elim
+--     have : (RawPExpr.inferType ctx f) = fT := by grind
+--     simp [hfT, RawPExpr.inferType, this] at he
+-- | ctx, ty, .lam name varType body, ⟨he⟩ =>
+--   match hty : ty with
+--   | .fun dom codom =>
+--     have : HasType ((name, varType) :: ctx) body codom := by
+--       simp only [RawPExpr.inferType, Option.map_eq_some_iff, PType.fun.injEq,
+--         exists_eq_right_right] at he
+--       grind [HasType]
+--     let ⟨body', hbody'⟩ := lowerRaw ((name, varType)::ctx) codom body
+--     have hlam : HasType (ctxS ctx) (RawPExpr.lam name (T.toS varType) body') (T.toS (dom.fun codom)) := by {
+--       have : (ctxS ((name, varType) :: ctx)) = (name, T.toS varType)::(ctxS ctx) := rfl
+--       rw [this] at hbody'
+--       simp [T.toS]
+--       grind [HasType, RawPExpr.inferType]
+--     }
+--     ⟨.lam name (T.toS varType) body', hlam⟩
+--   | .ofBase b  | .prod alpha beta => by
+--     apply False.elim
+--     simp [RawPExpr.inferType] at he
+-- | ctx, ty, .var name, ⟨he⟩ =>
+--   have hvar : HasType (ctxS ctx) (RawPExpr.var name) ty.toS := by
+--     apply HasType.mk
+--     simp only [RawPExpr.inferType, Option.map_eq_some_iff, Prod.exists, exists_eq_right] at he
+--     simp only [RawPExpr.inferType, Option.map_eq_some_iff, Prod.exists, exists_eq_right]
+--     obtain ⟨a, ha⟩ := he
+--     use a
+--     simp only [ctxS, List.find?_map, Option.map_eq_some_iff, Prod.mk.injEq, Prod.exists,
+--       ↓existsAndEq, true_and]
+--     use ty
+--     simp only [and_true]
+--     rw [← ha]
+--     rfl
+--   ⟨.var name, hvar⟩

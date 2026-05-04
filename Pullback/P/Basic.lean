@@ -29,7 +29,6 @@ def type {BaseType : Type} [BasedType BaseType] : PType BaseType → Type
 
 end PType
 
-
 /-- `Interp BaseType Const` gives a runtime value for each typed constant. -/
 class Interp (BaseType : Type) (Const : Type) [BasedType BaseType] [Typed Const (PType BaseType)] where
   interp : ∀ c : Const, PType.type (BaseType := BaseType) (Typed.type (α := Const) (A := PType BaseType) c)
@@ -42,7 +41,7 @@ inductive PExpr (Const BaseType : Type) [Typed Const (PType BaseType)] : List (P
 | lift {ty} {ctx ctx'} (e : PExpr Const BaseType ctx ty) : PExpr Const BaseType (ctx ++ ctx') ty
 | const {ctx} (c : Const): PExpr Const BaseType ctx (Typed.type c)
 | letE {ctx} {valT} {ty} (val : PExpr Const BaseType ctx valT) (body : PExpr Const BaseType (valT::ctx) ty) : PExpr Const BaseType ctx ty
-| var {ctx} (name : Fin ctx.length) : PExpr Const BaseType ctx (ctx.get name)
+| var {ctx} (name : Fin ctx.length) (ty : PType BaseType := ctx.get name) (hty : ctx.get name = ty := by rfl) : PExpr Const BaseType ctx ty
 | app {ctx} {argT} {ty} (f : PExpr Const BaseType ctx (.fun argT ty)) (arg : PExpr Const BaseType ctx argT) : PExpr Const BaseType ctx ty
 | lam {bodyT} {ctx} (varType : PType BaseType) (body : PExpr Const BaseType (varType::ctx) bodyT) : PExpr Const BaseType ctx (.fun varType bodyT)
 
@@ -87,7 +86,7 @@ def PExpr.interp {Const BaseType : Type} [BasedType BaseType] [Typed Const (PTyp
 | const c => Interp.interp c
 | letE val body =>
   body.interp (DVector.cons' (val.interp args) args)
-| var name => cast (by simp) <| args.get (Fin.cast (by simp) name)
+| var name ty hty => cast (by grind) <| args.get (Fin.cast (by simp) name)
 | app f arg =>
   (f.interp args) (arg.interp args)
 | lam varType body =>
@@ -106,7 +105,7 @@ where
 | const (c : Const)
 
 def RawPExpr.inferType {Const BaseType} [DecidableEq BaseType] [Typed Const (PType BaseType)] (ctxRaw : List (Name × PType BaseType)) : RawPExpr Const BaseType → Option (PType BaseType)
-| var (x : Name) => (ctxRaw.find? (·.1 == x)).map (·.2)
+| var (x : Name) => do return (ctxRaw.map (·.2)).get (Fin.cast (by grind) (← ctxRaw.findFinIdx? (·.1 == x)))
 | app f a => do
   match ← f.inferType ctxRaw, ← a.inferType ctxRaw with
   | .fun dom codom, ta =>
@@ -126,7 +125,7 @@ def RawPExpr.toPExpr {BaseType Const} [DecidableEq BaseType] [Typed Const (PType
   (e : RawPExpr Const BaseType) → (he : (e.inferType ctxRaw).isSome) →
     (PExpr Const BaseType (ctxRaw.map (·.2)) ((e.inferType ctxRaw).get he))
 | var x, he =>
-  let xi := (ctxRaw.findFinIdx? (·.1 == x)).get (by grind [inferType])
+  let xi := (ctxRaw.findFinIdx? (·.1 == x)).get (by grind [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff])
   let ctx := ctxRaw.map (·.2)
   have hctx : ctxRaw.length = ctx.length := by simp [ctx]
   let varTy : PType BaseType := ctx.get (Fin.cast hctx xi)
@@ -181,6 +180,9 @@ def RawPExpr.toPExpr {BaseType Const} [DecidableEq BaseType] [Typed Const (PType
 class HasType {Const BaseType} [DecidableEq BaseType] [Typed Const (PType BaseType)] (ctxRaw : List (Name × PType BaseType)) (e : RawPExpr (Const := Const) (BaseType := BaseType)) (ty : outParam (PType BaseType)) where
   hasType : e.inferType ctxRaw = ty
 
+class HasVar {BaseType} (ctxRaw : List (Name × PType BaseType)) (name : Name) (ty : outParam (PType BaseType)) where
+  hasVar : ctxRaw.find? (·.1 == name) = some (name, ty)
+
 def RawPExpr.toPExpr' {BaseType Const} [DecidableEq BaseType] [Typed Const (PType BaseType)] (ctxRaw : List (Name × PType BaseType)) (ty : PType BaseType) :
   (e : RawPExpr Const BaseType) → [HasType ctxRaw e ty] →
     (PExpr Const BaseType (ctxRaw.map (·.2)) ty) :=
@@ -191,10 +193,6 @@ namespace RawPExpr
 
 variable {BaseType Const} [DecidableEq BaseType] [Typed Const (PType BaseType)]
 
-theorem hasType_var (ty : PType BaseType) (ctxRaw : List (Name × PType BaseType)) (name : Name)
-    (hname : (ctxRaw.find? (·.1 == name)) = some (name, ty)) :
-  HasType ctxRaw (RawPExpr.var name : RawPExpr Const BaseType) ty :=
-  ⟨by simpa [inferType] using congrArg (Option.map Prod.snd) hname⟩
 
 instance instHasType_const (ctxRaw : List (Name × PType BaseType)) (c : Const) :
   HasType ctxRaw (RawPExpr.const c : RawPExpr Const BaseType) (Typed.type c) :=
@@ -224,4 +222,106 @@ instance instHasType_letE (ctxRaw : List (Name × PType BaseType)) (x : Name)
 instance instHasType_app (ctxRaw : List (Name × PType BaseType)) (dom codom : PType BaseType) (f x : RawPExpr Const BaseType) [HasType ctxRaw f (PType.fun dom codom)] [HasType ctxRaw x dom] :
   HasType ctxRaw (RawPExpr.app f x) codom :=
   ⟨by simp [inferType]; grind [HasType]⟩
+
+instance instHasVar_head {ctx : List (Name × PType BaseType)} {name : Name} {ty : PType BaseType} :
+    HasVar ((name, ty) :: ctx) name ty :=
+  ⟨by grind⟩
+
+theorem hasVar_cons {ctx : List (Name × PType BaseType)} {name name' : Name} {ty ty' : PType BaseType}
+    {idx : Fin ctx.length}
+    (h : HasVar ctx name ty) (hne : name' ≠ name) :
+    HasVar ((name', ty') :: ctx) name ty :=
+  ⟨by grind [h.1]⟩
+
+instance instHasType_var {ctx : List (Name × PType BaseType)} {name : Name}
+  {ty : PType BaseType} [hv : HasVar ctx name ty] :
+    HasType ctx (RawPExpr.var name : RawPExpr Const BaseType) ty :=
+  ⟨by
+    {
+      have := hv.1
+      rw [List.find?_eq_some_iff_getElem] at this
+      simp [List.findFinIdx?_eq_some_iff, inferType, Option.bind_eq_some_iff]
+      obtain ⟨i, hi, H⟩ := this.2
+      use ⟨i, hi⟩
+      grind
+    }⟩
+
 end RawPExpr
+
+variable {Const Const' BaseType BaseType'} [DecidableEq BaseType] [BasedType BaseType] [BasedType BaseType'] [DecidableEq BaseType'] [Typed Const (PType BaseType)] [Typed Const' (PType BaseType')]
+variable [Interp BaseType Const] [Interp BaseType' Const']
+
+@[simp]
+theorem toPExpr'_app
+    {ctx : List (Name × PType BaseType)}
+    {f a : RawPExpr Const BaseType}
+    {A B : PType BaseType}
+    [hf : HasType ctx f (A.fun B)] [ha : HasType ctx a A] :
+  (RawPExpr.app f a).toPExpr' ctx B
+  =
+  PExpr.app
+    (f.toPExpr' ctx (A.fun B))
+    (a.toPExpr' ctx A) := by
+simp [RawPExpr.toPExpr', RawPExpr.toPExpr]
+rw! (castMode := .all) [hf.1]
+simp [ha.1]
+
+@[simp]
+theorem toPExpr'_const
+    {ctx : List (Name × PType BaseType)}
+    (c : Const) :
+  (RawPExpr.const c : RawPExpr Const BaseType).toPExpr' ctx (Typed.type c)
+  = PExpr.const c := by
+rfl
+
+@[simp]
+theorem toPExpr'_lam
+    {ctx : List (Name × PType BaseType)}
+    {x : Name} {argT bodyT : PType BaseType}
+    {body : RawPExpr Const BaseType}
+    [hbody : HasType ((x, argT) :: ctx) body bodyT] :
+  (RawPExpr.lam x argT body : RawPExpr Const BaseType).toPExpr' ctx (.fun argT bodyT)
+  = PExpr.lam argT (body.toPExpr' ((x, argT) :: ctx) bodyT) := by
+simp [RawPExpr.toPExpr', RawPExpr.toPExpr]
+rw! (castMode := .all) [hbody.1]
+simp
+
+@[simp]
+theorem toPExpr'_letE
+    {ctx : List (Name × PType BaseType)}
+    {x : Name} {v body : RawPExpr Const BaseType}
+    {vT bodyT : PType BaseType}
+    [hv : HasType ctx v vT] [hbody : HasType ((x, vT) :: ctx) body bodyT] :
+  (RawPExpr.letE x v body : RawPExpr Const BaseType).toPExpr' ctx bodyT
+  = PExpr.letE (v.toPExpr' ctx vT) (body.toPExpr' ((x, vT) :: ctx) bodyT) := by
+simp [RawPExpr.toPExpr', RawPExpr.toPExpr]
+rw! (castMode := .all) [hv.1, hbody.1]
+grind
+
+@[simp]
+theorem toPExpr'_var
+    {ctx : List (Name × PType BaseType)}
+    {name : Name} {ty : PType BaseType}
+    [hv : HasVar ctx name ty] :
+  (RawPExpr.var name : RawPExpr Const BaseType).toPExpr' ctx ty
+  = PExpr.var (Fin.cast (by grind) ((ctx.findFinIdx? (·.1 == name)).get (by grind [HasVar]))) ty (by {
+    have := hv.1
+    sorry
+  }) := by
+  simp [RawPExpr.toPExpr', RawPExpr.toPExpr]
+  grind [HasVar]
+
+example
+  {ctx : List (Name × PType BaseType)} {ty : PType BaseType} (args : DVector (ctx.map (·.2.type)))
+  {e : RawPExpr Const BaseType} {e' : RawPExpr Const' BaseType'}
+  (f : PType BaseType → PType BaseType') (hf : ∀ ty : PType BaseType, ty.type = (f ty).type)
+  [he : HasType ctx e ty] [he' : HasType (ctx.map (fun (x, v) => (x, f v))) e' (f ty)]
+  (E : ty.type) (E' : (f ty).type)
+  (He : (e.toPExpr' ctx ty).interp (cast (by grind) args) = E)
+  (He' : (e'.toPExpr' (ctx.map (fun (x, t) => (x, f t))) (f ty)).interp (cast sorry args) = E')
+  (H : E ≍ E') :
+    let harg := by
+      apply congrArg
+      simp
+      grind
+    (e.toPExpr ctx (by grind [HasType])).interp (cast (by grind) args) = cast (by simp [he.1, he'.1, hf]) ((e'.toPExpr (ctx.map (fun (x, t) => (x, f t))) (by grind [HasType])).interp (cast harg args)) := sorry
