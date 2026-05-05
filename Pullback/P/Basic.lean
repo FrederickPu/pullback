@@ -246,17 +246,64 @@ instance instHasType_var {ctx : List (Name × PType BaseType)} {name : Name}
       grind
     }⟩
 
+macro "inferHasType" : tactic =>
+  `(tactic| (apply HasType.mk; simp [RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go]))
+
+macro "inferHasVar" : tactic =>
+  `(tactic| (apply HasVar.mk; rfl))
+
+
+open Lean Meta Expr Elab Term Tactic Core IO LibrarySuggestions
+#check Simp.Context.ofArgs
+#check Lean.Meta.mkSimpTheoremFromExpr
+open Lean Meta Elab Tactic Simp in
+open Lean Meta
+/-- Simplify an expression using the given lemmas -/
+def simpExpr (e : Expr) (defns : List Name) : MetaM Expr := do
+  let cfg : Lean.Meta.Simp.Config := {
+    zeta := true
+    beta := true
+    eta := true
+    iota := true
+    proj := true
+    decide := false
+    contextual := false
+    arith := false
+  }
+  let ctx ← Meta.mkSimpContext (simpOnly := false) cfg
+
+  let mut simpTheorems := ctx.simpTheorems
+  if simpTheorems.isEmpty then
+    simpTheorems := #[]
+
+  -- 🔥 KEY CHANGE HERE
+  for name in defns do
+    simpTheorems ← simpTheorems.modifyM 0 fun thms0 =>
+      thms0.addDeclToUnfold name
+
+  let ctx := ctx.setSimpTheorems simpTheorems
+  let result ← Meta.simp e ctx
+  return result.1.expr
+
+open Lean Meta Elab Tactic Simp
+/-- Term elaborator that returns `RawPExpr.inferType vars e` unevaluated (no simplification). -/
+elab "exprTypeOf" e:term "in" vars:term : term => do
+  let stx ← `(RawPExpr.inferType $vars $e)
+  let e ← Lean.Elab.Term.elabTerm stx none
+  simpExpr e [`PExpr.RawPExpr.inferType, `List.findFinIdx?, `List.findFinIdx?.go, `Typed.type]
+
 end RawPExpr
 
 variable {Const Const' BaseType BaseType'} [DecidableEq BaseType] [BasedType BaseType] [BasedType BaseType'] [DecidableEq BaseType'] [Typed Const (PType BaseType)] [Typed Const' (PType BaseType')]
 variable [Interp BaseType Const] [Interp BaseType' Const']
+
 
 @[simp]
 theorem toPExpr'_app
     {ctx : List (Name × PType BaseType)}
     {f a : RawPExpr Const BaseType}
     {A B : PType BaseType}
-    [hf : HasType ctx f (A.fun B)] [ha : HasType ctx a A] :
+    (hf : HasType ctx f (A.fun B) := by inferHasType) (ha : HasType ctx a A := by inferHasType) :
   (RawPExpr.app f a).toPExpr' ctx B
   =
   PExpr.app
@@ -279,7 +326,7 @@ theorem toPExpr'_lam
     {ctx : List (Name × PType BaseType)}
     {x : Name} {argT bodyT : PType BaseType}
     {body : RawPExpr Const BaseType}
-    [hbody : HasType ((x, argT) :: ctx) body bodyT] :
+    (hbody : HasType ((x, argT) :: ctx) body bodyT := by inferHasType) :
   (RawPExpr.lam x argT body : RawPExpr Const BaseType).toPExpr' ctx (.fun argT bodyT)
   = PExpr.lam argT (body.toPExpr' ((x, argT) :: ctx) bodyT) := by
 simp [RawPExpr.toPExpr', RawPExpr.toPExpr]
@@ -291,7 +338,7 @@ theorem toPExpr'_letE
     {ctx : List (Name × PType BaseType)}
     {x : Name} {v body : RawPExpr Const BaseType}
     {vT bodyT : PType BaseType}
-    [hv : HasType ctx v vT] [hbody : HasType ((x, vT) :: ctx) body bodyT] :
+    (hv : HasType ctx v vT := by inferHasType) (hbody : HasType ((x, vT) :: ctx) body bodyT := by inferHasType) :
   (RawPExpr.letE x v body : RawPExpr Const BaseType).toPExpr' ctx bodyT
   = PExpr.letE (v.toPExpr' ctx vT) (body.toPExpr' ((x, vT) :: ctx) bodyT) := by
 simp [RawPExpr.toPExpr', RawPExpr.toPExpr]
@@ -302,7 +349,7 @@ grind
 theorem toPExpr'_var
     {ctx : List (Name × PType BaseType)}
     {name : Name} {ty : PType BaseType}
-    [hv : HasVar ctx name ty] :
+    (hv : HasVar ctx name ty := by inferHasVar) :
   (RawPExpr.var name : RawPExpr Const BaseType).toPExpr' ctx ty
   = PExpr.var (Fin.cast (by grind) ((ctx.findFinIdx? (·.1 == name)).get (by grind [HasVar]))) ty (by {
     have := hv.1
@@ -315,7 +362,7 @@ example
   {ctx : List (Name × PType BaseType)} {ty : PType BaseType} (args : DVector (ctx.map (·.2.type)))
   {e : RawPExpr Const BaseType} {e' : RawPExpr Const' BaseType'}
   (f : PType BaseType → PType BaseType') (hf : ∀ ty : PType BaseType, ty.type = (f ty).type)
-  [he : HasType ctx e ty] [he' : HasType (ctx.map (fun (x, v) => (x, f v))) e' (f ty)]
+  (he : HasType ctx e ty := by inferHasType) (he' : HasType (ctx.map (fun (x, v) => (x, f v))) e' (f ty) := by inferHasType)
   (E : ty.type) (E' : (f ty).type)
   (He : (e.toPExpr' ctx ty).interp (cast (by grind) args) = E)
   (He' : (e'.toPExpr' (ctx.map (fun (x, t) => (x, f t))) (f ty)).interp (cast sorry args) = E')
