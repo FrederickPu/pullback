@@ -288,7 +288,7 @@ def simpExpr (e : Expr) (defns : List Name) : MetaM Expr := do
 open Lean Meta Elab Tactic Simp
 /-- Term elaborator that returns `RawPExpr.inferType vars e` unevaluated (no simplification). -/
 elab "exprTypeOf" e:term "in" vars:term : term => do
-  let stx ← `(RawPExpr.inferType $vars $e)
+  let stx ← `((RawPExpr.inferType $vars $e).get (by simp [RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go, Typed.type]))
   let e ← Lean.Elab.Term.elabTerm stx none
   simpExpr e [`PExpr.RawPExpr.inferType, `List.findFinIdx?, `List.findFinIdx?.go, `Typed.type]
 
