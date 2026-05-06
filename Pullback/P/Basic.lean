@@ -247,7 +247,7 @@ instance instHasType_var {ctx : List (Name × PType BaseType)} {name : Name}
     }⟩
 
 macro "inferHasType" : tactic =>
-  `(tactic| (apply HasType.mk; simp [RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go]))
+  `(tactic| (apply HasType.mk; simp [RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go, Typed.type]))
 
 macro "inferHasVar" : tactic =>
   `(tactic| (apply HasVar.mk; rfl))
@@ -297,12 +297,12 @@ end RawPExpr
 variable {Const Const' BaseType BaseType'} [DecidableEq BaseType] [BasedType BaseType] [BasedType BaseType'] [DecidableEq BaseType'] [Typed Const (PType BaseType)] [Typed Const' (PType BaseType')]
 variable [Interp BaseType Const] [Interp BaseType' Const']
 
-
 @[simp]
 theorem toPExpr'_app
     {ctx : List (Name × PType BaseType)}
     {f a : RawPExpr Const BaseType}
-    {A B : PType BaseType}
+    {A : PType BaseType}
+    {B : PType BaseType}
     (hf : HasType ctx f (A.fun B) := by inferHasType) (ha : HasType ctx a A := by inferHasType) :
   (RawPExpr.app f a).toPExpr' ctx B
   =
