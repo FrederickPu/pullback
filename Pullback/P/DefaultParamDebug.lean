@@ -8,35 +8,40 @@ open Lean Meta Elab Term PrettyPrinter
 open PExpr RawPExpr
 
 #check Term.mkConst
-def exprTypeOfMeta (e vars : Expr) : MetaM (Expr × Expr) := do
-  let varsStx ← delab vars
-  let eStx ← delab e
-  let stx ←
-    `(term|
-      (PExpr.RawPExpr.inferType $varsStx $eStx).get
-        (by simp [PExpr.RawPExpr.inferType,
-                  List.findFinIdx?,
-                  List.findFinIdx?.go,
-                  Typed.type]))
-  let term ←
-    TermElabM.run' do
-      elabTerm stx none
+def inferHasType (e vars : Expr) : MetaM (Expr × Expr) := do
+  let e ← zetaReduce e
+  let vars ← zetaReduce vars
 
-  let ty ← simpExpr term
-    [`PExpr.RawPExpr.inferType,
-     `List.findFinIdx?,
-     `List.findFinIdx?.go,
-     `Typed.type]
+  let inferTypeApp ← mkAppM ``PExpr.RawPExpr.inferType #[vars, e]
+  let inferTypeApp ← instantiateMVars inferTypeApp
 
-  let stxTy ← delab ty
-  let hasTypeStx ←
-    `(term|
-      ((by inferHasType) : HasType $varsStx $eStx $stxTy))
+  -- Build isSome proof via tactic (same as `by simp [...]` in the original)
+  let isSomeTy ← mkEq (← mkAppM ``Option.isSome #[inferTypeApp]) (mkConst ``Bool.true)
+  let isSomeMvar ← mkFreshExprMVar (some isSomeTy)
+  let _ ← TermElabM.run' do
+    let remaining ← Lean.Elab.Tactic.run isSomeMvar.mvarId! do
+      Lean.Elab.Tactic.evalTactic (← `(tactic| simp [PExpr.RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go, Typed.type]))
+    if !remaining.isEmpty then
+      throwError "isSome simp left unsolved goals"
 
-  let proof ← TermElabM.run' do
-    elabTermAndSynthesize hasTypeStx none
+  -- Build the full `Option.get inferTypeApp proof` term, then simpExpr the whole thing
+  let getApp ← mkAppOptM ``Option.get #[none, inferTypeApp, isSomeMvar]
+  let ty ← simpExpr getApp
+    [`PExpr.RawPExpr.inferType, `List.findFinIdx?, `List.findFinIdx?.go, `Typed.type]
 
-  return (ty, proof)
+  -- HasType proof via synthInstance
+  let hasTypeTy ← mkAppM ``HasType #[vars, e, ty]
+  let mvar ← mkFreshExprMVar (some hasTypeTy)
+  let remaining ← TermElabM.run' do
+    Lean.Elab.Tactic.run mvar.mvarId! do
+      Lean.Elab.Tactic.evalTactic (← `(tactic| inferHasType))
+  if !remaining.isEmpty then
+    let goalStrs ← remaining.mapM fun g => do
+      let fmt ← Meta.ppGoal g
+      return fmt.pretty
+    throwError "inferHasType left unsolved goals:\n{goalStrs.foldl (· ++ "\n---\n" ++ ·) ""}"
+  let proof ← instantiateMVars mvar
+  return (hasTypeTy, proof)
 
 open Lean Meta Elab Tactic
 
@@ -47,22 +52,16 @@ partial def annotateRawPExpr (e vars : Expr) : TacticM Unit := do
       return visited
     let visited := visited.insert e
 
-    IO.println "bruh"
+    -- Check if e has type RawPExpr before annotating
+    let eType ← liftMetaM do Meta.inferType e
+    let isRawPExpr := eType.isAppOf ``PExpr.RawPExpr
 
-    -- let (ty, proof) ← liftMetaM do
-    --   exprTypeOfMeta e vars
-
-    -- let proofStx ← delab proof
-    -- let varsStx ← delab vars
-    -- let eStx ← delab e
-    -- let eTypeStx ← delab (← Meta.inferType e)
-    -- let tyStx ← delab ty
-
-    -- let hName ← mkFreshUserName `ht
-    -- withMainContext do
-    --   evalTactic (← `(tactic|
-    --     have $(mkIdent hName) : HasType $varsStx ($eStx : $eTypeStx) $tyStx := $proofStx
-    --   ))
+    if isRawPExpr then
+      let (ty, proof) ← liftMetaM do inferHasType e vars
+      let goal ← getMainGoal
+      let goal' ← goal.assert `hasType ty proof
+      let (_, goal') ← goal'.intro1P
+      replaceMainGoal [goal']
 
     match e with
     | Expr.app f a => do
@@ -70,7 +69,7 @@ partial def annotateRawPExpr (e vars : Expr) : TacticM Unit := do
         let visited ← go a visited
         return visited
     | _ =>
-        return visited
+      return visited
 
   let _ ← go e {}
   return ()
@@ -82,16 +81,16 @@ elab "annotate_raw" e:term "in" vars:term : tactic => do
     annotateRawPExpr eExpr varsExpr
 
 /-- Term elaborator that delegates to `exprTypeOfMeta`. -/
-elab "exprTypeOf'" e:term "in" vars:term : term => do
+elab "exprHasType" e:term "in" vars:term : term => do
 
   -- turn syntax into Expr
   let eExpr ← elabTerm e none
   let varsExpr ← elabTerm vars none
 
   -- call your MetaM function
-  let r ← exprTypeOfMeta eExpr varsExpr
+  let r ← inferHasType eExpr varsExpr
 
-  logInfo r.2
+  -- logInfo r.2
 
   -- return result as term
   return r.1
@@ -101,7 +100,8 @@ variable {m n k : Nat}
 /-
 PType.ofBase (LinalgBaseType.tensor [m, n]) : PType LinalgBaseType
 -/
-#check exprTypeOf' (((RawPExpr.const (LinalgConst.matmul m n k)).app (RawPExpr.var `A)).app (RawPExpr.var `B) : RawPExpr LinalgConst LinalgBaseType) in [(`B, PType.ofBase (LinalgBaseType.tensor [k, n])), (`A, PType.ofBase (LinalgBaseType.tensor [m, k]))]
+#check exprHasType (((RawPExpr.const (LinalgConst.matmul m n k)).app (RawPExpr.var `A)).app (RawPExpr.var `B) : RawPExpr LinalgConst LinalgBaseType) in [(`B, PType.ofBase (LinalgBaseType.tensor [k, n])), (`A, PType.ofBase (LinalgBaseType.tensor [m, k]))]
+-- isSome simp left unsolved goalsLean 4
 /-
 Unknown constant `RawPExpr.inferType`
 -/
@@ -169,26 +169,28 @@ example {m n k : Nat} :
   =
   sorry := by
   extract_lets ctx matmulAB f this1
-  let x := ((RawPExpr.app f matmulAB) : RawPExpr LinalgConst LinalgBaseType)
+  annotate_raw ((RawPExpr.app f matmulAB) : RawPExpr LinalgConst LinalgBaseType) in [(`B, PType.ofBase (LinalgBaseType.tensor [k, n])), (`A, PType.ofBase (LinalgBaseType.tensor [m, k]))]
+  simp
+
   /-
   failed to synthesize
   Typed ?m.101 (PType ?m.106)
   -/
-  annotate_raw ((RawPExpr.app f matmulAB) : RawPExpr LinalgConst LinalgBaseType) in ctx
+  -- annotate_raw ((RawPExpr.app f matmulAB) : RawPExpr LinalgConst LinalgBaseType) in ctx
   -- rw [toPExpr'_app']
 
--- Proper test: relu takes tensor [m,n] -> tensor [m,n]
--- matmul m n k takes tensor [m,k] -> tensor [k,n] -> tensor [m,n]
-example {m n k : Nat} :
-  let ctx := [(`B, PType.ofBase (LinalgBaseType.tensor [k, n])), (`A, PType.ofBase (LinalgBaseType.tensor [m, k]))]
-  let matmulAB := ((RawPExpr.const (LinalgConst.matmul m n k)).app (RawPExpr.var `A)).app (RawPExpr.var `B)
-  let f := RawPExpr.const (LinalgConst.relu [m, n])
-  have : HasType ctx matmulAB (PType.ofBase (LinalgBaseType.tensor [m, n])) := by simp [f, matmulAB, ctx];  inferHasType;
-  have : HasType ctx (f.app matmulAB) (PType.ofBase (LinalgBaseType.tensor [m, n])) := by simp [f, matmulAB, ctx]; inferHasType
-  (RawPExpr.app f matmulAB).toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, n]))
-  =
-  PExpr.app
-    (f.toPExpr' ctx (PType.fun (PType.ofBase (LinalgBaseType.tensor [m, n])) (PType.ofBase (LinalgBaseType.tensor [m, n]))))
-    (matmulAB.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, n]))) := by
-  simp only [toPExpr'_app]
-  sorry
+-- -- Proper test: relu takes tensor [m,n] -> tensor [m,n]
+-- -- matmul m n k takes tensor [m,k] -> tensor [k,n] -> tensor [m,n]
+-- example {m n k : Nat} :
+--   let ctx := [(`B, PType.ofBase (LinalgBaseType.tensor [k, n])), (`A, PType.ofBase (LinalgBaseType.tensor [m, k]))]
+--   let matmulAB := ((RawPExpr.const (LinalgConst.matmul m n k)).app (RawPExpr.var `A)).app (RawPExpr.var `B)
+--   let f := RawPExpr.const (LinalgConst.relu [m, n])
+--   have : HasType ctx matmulAB (PType.ofBase (LinalgBaseType.tensor [m, n])) := by simp [f, matmulAB, ctx];  inferHasType;
+--   have : HasType ctx (f.app matmulAB) (PType.ofBase (LinalgBaseType.tensor [m, n])) := by simp [f, matmulAB, ctx]; inferHasType
+--   (RawPExpr.app f matmulAB).toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, n]))
+--   =
+--   PExpr.app
+--     (f.toPExpr' ctx (PType.fun (PType.ofBase (LinalgBaseType.tensor [m, n])) (PType.ofBase (LinalgBaseType.tensor [m, n]))))
+--     (matmulAB.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, n]))) := by
+--   simp only [toPExpr'_app]
+--   sorry
