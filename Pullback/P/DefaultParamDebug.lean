@@ -106,31 +106,60 @@ PType.ofBase (LinalgBaseType.tensor [m, n]) : PType LinalgBaseType
 Unknown constant `RawPExpr.inferType`
 -/
 
--- #check PExpr.RawPExpr.app
--- /-
--- {Const BaseType : Type} → PExpr.RawPExpr Const BaseType → PExpr.RawPExpr Const BaseType → PExpr.RawPExpr Const BaseType
--- -/
--- #check @PExpr.RawPExpr.toPExpr'
--- /-
--- @PExpr.RawPExpr.toPExpr' : {BaseType Const : Type} →
---   [inst : DecidableEq BaseType] →
---     [inst_1 : Typed Const (PType BaseType)] →
---       (ctxRaw : List (Name × PType BaseType)) →
---         (ty : PType BaseType) →
---           (e : PExpr.RawPExpr Const BaseType) →
---             [PExpr.HasType ctxRaw e ty] → PExpr Const BaseType (List.map (fun x => x.2) ctxRaw) ty
--- -/
--- simproc ↓ [simp, seval] reduce_toPExpr' (PExpr.RawPExpr.toPExpr' _ _ (PExpr.RawPExpr.app _ _)) := fun e => do
---   logInfo m!"start"
---   let_expr eouter@PExpr.RawPExpr.toPExpr' BaseType Const hd ht ctxRaw ty ee inst ← e | return .continue
---   let_expr eapp@PExpr.RawPExpr.app _ _ f x ← ee | return .continue
---   let inferX := mkApp (mkConst ``PExpr.RawPExpr.inferType)
---                       #[mkConst ``ctxRaw, x] -- NOTE: ctxRaw is already Expr in e, see below fix
+#check PExpr.RawPExpr.app
+/-
+{Const BaseType : Type} → PExpr.RawPExpr Const BaseType → PExpr.RawPExpr Const BaseType → PExpr.RawPExpr Const BaseType
+-/
+#check @PExpr.RawPExpr.toPExpr'
+/-
+@PExpr.RawPExpr.toPExpr' : {BaseType Const : Type} →
+  [inst : DecidableEq BaseType] →
+    [inst_1 : Typed Const (PType BaseType)] →
+      (ctxRaw : List (Name × PType BaseType)) →
+        (ty : PType BaseType) →
+          (e : PExpr.RawPExpr Const BaseType) →
+            [PExpr.HasType ctxRaw e ty] → PExpr Const BaseType (List.map (fun x => x.2) ctxRaw) ty
+-/
+simproc ↓ [simp, seval] reduce_toPExpr' (PExpr.RawPExpr.toPExpr' _ _ (PExpr.RawPExpr.app _ _)) := fun e => do
+  let_expr PExpr.RawPExpr.toPExpr' BaseType Const hd ht ctxRaw ty ee inst ← e | return .continue
+  let_expr PExpr.RawPExpr.app _ _ f x ← ee | return .continue
 
---   let r ← simp inferX
---   let xty ←
---   return .continue
+  logInfo m!"BaseType repr: {repr BaseType}"
+  logInfo m!"Const repr: {repr Const}"
 
+  -- Get the type of x (the argument)
+  let (xHasTypeTy, xHasTypeProof) ← inferHasType x ctxRaw
+
+  -- xHasTypeTy is `@HasType Const BaseType inst_DE inst_Typed ctxRaw x argTy`
+  -- getAppArgs gives [Const, BaseType, inst_DE, inst_Typed, ctxRaw, x, argTy]
+  -- so index [2] is inst_DE — use appArg! to get the last arg (argTy) instead
+  let argTy := xHasTypeTy.appArg!
+  logInfo m!"argTy repr: {repr argTy}"
+  logInfo m!"ty repr: {repr ty}"
+
+  let funConst ← mkConstWithFreshMVarLevels ``PType.fun
+  logInfo m!"PType.fun repr: {repr funConst}"
+
+  -- funTy is `argTy.fun ty`
+  let funTy ← mkAppOptM ``PType.fun #[some BaseType, some argTy, some ty]
+
+  -- Get the type of f
+  let (_, fHasTypeProof) ← inferHasType f ctxRaw
+
+  -- Build the rewritten expression:
+  -- PExpr.app (f.toPExpr' ctxRaw funTy) (x.toPExpr' ctxRaw argTy)
+  -- Use mkAppOptM to explicitly supply the [HasType] instance-implicit arg (position 7),
+  -- since typeclass synthesis cannot find it in the simproc context.
+  let fToPExpr ← mkAppOptM ``PExpr.RawPExpr.toPExpr'
+    #[none, none, some hd, some ht, some ctxRaw, some funTy, some f, some fHasTypeProof]
+  let xToPExpr ← mkAppOptM ``PExpr.RawPExpr.toPExpr'
+    #[none, none, some hd, some ht, some ctxRaw, some argTy, some x, some xHasTypeProof]
+  let result ← mkAppM ``PExpr.app #[fToPExpr, xToPExpr]
+
+  -- Build the proof that e = result using toPExpr'_app
+  let eqProof ← mkAppM ``toPExpr'_app #[fHasTypeProof, xHasTypeProof]
+
+  return .visit { expr := result, proof? := some eqProof }
 open PExpr RawPExpr HasType Lean Meta Simp
 
 variable {Const Const' BaseType BaseType'} [DecidableEq BaseType] [BasedType BaseType] [BasedType BaseType'] [DecidableEq BaseType'] [Typed Const (PType BaseType)] [Typed Const' (PType BaseType')]
