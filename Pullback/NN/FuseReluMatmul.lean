@@ -361,12 +361,12 @@ def lowerRaw : (ctxL : List (Name × T)) → (ty : T) → (e : RawPExpr LinalgCo
   | .ofBase b  | .prod alpha beta => by
     apply False.elim
     simp [RawPExpr.inferType] at he
-| ctx, ty, .var name, ⟨he⟩ =>
+| ctx, ty, .var name, he =>
   have hvar : HasType (ctxS ctx) (RawPExpr.var name) ty.toS := by
     have : HasVar (ctxS ctx) name ty.toS := by
-      apply HasVar.mk
-      simp [RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go] at he
-      rw [List.find?_eq_some_iff_getElem]
-      sorry
+      rw [PExpr.RawPExpr.HasType_iff_HasVar] at he
+      simp [ctxS]
+      apply PExpr.RawPExpr.HasVar_map
+      grind [ctxS]
     infer_instance
   ⟨.var name, hvar⟩

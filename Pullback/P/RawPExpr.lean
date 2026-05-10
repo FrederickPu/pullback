@@ -45,6 +45,17 @@ theorem hasVar_cons {ctx : List (Name × PType BaseType)} {name name' : Name} {t
     HasVar ((name', ty') :: ctx) name ty :=
   ⟨by grind [h.1]⟩
 
+theorem HasType_iff_HasVar {ctxRaw : List (Name × PType BaseType)} {x : Name} {ty : PType BaseType} :
+    HasType ctxRaw (RawPExpr.var x : RawPExpr Const BaseType) ty ↔ HasVar ctxRaw x ty := by
+  sorry
+
+theorem HasVar_map {BaseType' : Type} (f : PType BaseType → PType BaseType')
+    {ctx : List (Name × PType BaseType)} {name : Name} {ty : PType BaseType}
+    (h : HasVar ctx name ty) :
+    HasVar (ctx.map (fun x => (x.1, f x.2))) name (f ty) :=
+  ⟨by sorry
+  ⟩
+
 instance instHasType_var {ctx : List (Name × PType BaseType)} {name : Name}
   {ty : PType BaseType} [hv : HasVar ctx name ty] :
     HasType ctx (RawPExpr.var name : RawPExpr Const BaseType) ty :=
