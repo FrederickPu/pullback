@@ -201,7 +201,7 @@ example {m n k : Nat} :
 
 -- todo :: have a nice definition/command elaborator that automatically gives you the inferType theorem when you declar the rpexpr
 -- (this will require fixing some of the reflexivity issues with inferType)
-def matmulReluSCF (m n k : Nat) : RawPExpr SCFConst SCFBaseType := rpexpr{
+@[reducible] def matmulReluSCF (m n k : Nat) : RawPExpr SCFConst SCFBaseType := rpexpr{
     fun A' : `((T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))) => fun B' : `((T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))) =>
     fun i : b(.fin m) => fun j : b(.fin n) =>
       c(.relu) (c(.foldl k) (fun acc : b(.float) => fun t : b(.fin k) => (c(.add) acc) (c(.mul) (A' i t) (B' t j))) c(.float 0))
@@ -217,6 +217,71 @@ theorem inferType_matmulReluSCF {ctx : List (Name × S)} {m n k} : RawPExpr.infe
             ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float)))))) := by
   simp [matmulReluSCF, RawPExpr.inferType, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf, PExpr.RawPExpr.inferType, T.toS, Typed.type, List.findFinIdx?, List.findFinIdx?.go]
 
+instance instHasType_matmulReluSCF {ctx : List (Name × S)} {m n k : ℕ} :
+    HasType ctx (matmulReluSCF m n k)
+      ((((PType.ofBase (SCFBaseType.fin m)).fun ((PType.ofBase (SCFBaseType.fin k)).fun (PType.ofBase SCFBaseType.float))).fun
+        (((PType.ofBase (SCFBaseType.fin k)).fun ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float))).fun
+          ((PType.ofBase (SCFBaseType.fin m)).fun ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float)))))) :=
+  HasType.mk inferType_matmulReluSCF
+
+instance instHasType_reluMatmul
+    {ctx : List (Name × T)} {m n k : ℕ}
+    {A B : RawPExpr LinalgConst LinalgBaseType}
+    [HasType ctx A (PType.ofBase (LinalgBaseType.tensor [m, k]))]
+    [HasType ctx B (PType.ofBase (LinalgBaseType.tensor [k, n]))] :
+    HasType ctx
+        ((RawPExpr.const (LinalgConst.relu [m, n])).app
+          (((RawPExpr.const (LinalgConst.matmul m n k)).app A).app B))
+        (PType.ofBase (LinalgBaseType.tensor [m, n])) := by
+  apply HasType.mk
+  simp only [RawPExpr.inferType, Option.pure_def, Option.bind_eq_bind, Option.bind_fun_none,
+    Option.bind_some, Option.bind_eq_some_iff, Option.ite_none_right_eq_some, Option.some.injEq,
+    ↓existsAndEq, true_and, and_true]
+  grind [HasType]
+
+instance instHasType_matmulReluSCFApp
+    {ctx : List (Name × S)} {m n k : ℕ}
+    {A' B' : RawPExpr SCFConst SCFBaseType}
+    [hA' : HasType ctx A' (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))]
+    [hB' : HasType ctx B' (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))] :
+    HasType ctx (((matmulReluSCF m n k).app A').app B')
+        (T.toS (PType.ofBase (LinalgBaseType.tensor [m, n]))) := by
+  have hA'_exp : HasType ctx A'
+      ((PType.ofBase (SCFBaseType.fin m)).fun
+        ((PType.ofBase (SCFBaseType.fin k)).fun (PType.ofBase SCFBaseType.float))) := by
+    simp only [T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf] at hA'
+    grind [HasType]
+  have hB'_exp : HasType ctx B'
+      ((PType.ofBase (SCFBaseType.fin k)).fun
+        ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float))) := by
+    simp only [T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf] at hB'
+    grind [HasType]
+  simp only [T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
+  infer_instance
+
+/-- Correctness of the fused relu-matmul lowering:
+    given correct lowerings A' and B' of A and B, `(matmulReluSCF m n k).app A' |>.app B'`
+    correctly lowers `relu(matmul(A, B))`. -/
+theorem lowerRaw_reluMatmul_correct
+    {ctx : List (Name × T)}
+    {m n k : ℕ}
+    {A B : RawPExpr LinalgConst LinalgBaseType}
+    {A' B' : RawPExpr SCFConst SCFBaseType}
+    [HasType ctx A (PType.ofBase (LinalgBaseType.tensor [m, k]))]
+    [HasType ctx B (PType.ofBase (LinalgBaseType.tensor [k, n]))]
+    [HasType (ctxS ctx) A' (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))]
+    [HasType (ctxS ctx) B' (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))]
+    (hcorrA : (fun args => interp args (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, k])) A)) ≍
+              fun args => interp args (RawPExpr.toPExpr' (ctxS ctx) (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k]))) A'))
+    (hcorrB : (fun args => interp args (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [k, n])) B)) ≍
+              fun args => interp args (RawPExpr.toPExpr' (ctxS ctx) (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n]))) B')) :
+    (fun args => interp args (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, n]))
+        ((RawPExpr.const (LinalgConst.relu [m, n])).app
+          (((RawPExpr.const (LinalgConst.matmul m n k)).app A).app B)))) ≍
+    fun args => interp args (RawPExpr.toPExpr' (ctxS ctx) (T.toS (PType.ofBase (LinalgBaseType.tensor [m, n])))
+        (((matmulReluSCF m n k).app A').app B')) := by
+  sorry
+
 #check interp
 /-
   todo :: make a general purpose lowering functions that takes in a Const.lower along with a `preprocess : RawPExpr → (k : RawPExpr → RawPExpr) → Option RawPExpr`
@@ -229,6 +294,7 @@ theorem inferType_matmulReluSCF {ctx : List (Name × S)} {m n k} : RawPExpr.infe
 def lowerRaw : (ctxL : List (Name × T)) → (ty : T) → (e : RawPExpr LinalgConst LinalgBaseType) →
   [h : HasType ctxL e ty] → {x : RawPExpr SCFConst SCFBaseType // HasType (ctxS ctxL) x (T.toS ty)}
 | ctx, ty, .app (.const (.relu shape)) (.app (.app (.const (.matmul m n k)) A) B), ⟨he⟩ =>
+  let e : RawPExpr LinalgConst LinalgBaseType := .app (.const (.relu shape)) (.app (.app (.const (.matmul m n k)) A) B)
   have ⟨hshape, hA, hB, hty⟩ : shape = [m, n] ∧
     HasType ctx A (PType.ofBase (LinalgBaseType.tensor [m, k])) ∧
     HasType ctx B (PType.ofBase (LinalgBaseType.tensor [k, n])) ∧
@@ -237,13 +303,15 @@ def lowerRaw : (ctxL : List (Name × T)) → (ty : T) → (e : RawPExpr LinalgCo
       Option.bind_some, Option.bind_eq_some_iff, Option.ite_none_right_eq_some, Option.some.injEq,
       ↓existsAndEq, true_and, and_true, PType.ofBase.injEq, LinalgBaseType.tensor.injEq] at he
     grind [HasType]
+  have he' : HasType ctx e (PType.ofBase (LinalgBaseType.tensor [m, n])) := by
+    apply HasType.mk
+    simp only [e, RawPExpr.inferType, Option.pure_def, Option.bind_eq_bind, Option.bind_fun_none,
+      Option.bind_some, Option.bind_eq_some_iff, Option.ite_none_right_eq_some, Option.some.injEq,
+      ↓existsAndEq, true_and, and_true, PType.ofBase.injEq, LinalgBaseType.tensor.injEq]
+    grind [HasType]
   let ⟨A', ⟨hA'⟩⟩ := lowerRaw ctx (PType.ofBase (LinalgBaseType.tensor [m, k])) A
   let ⟨B', hB'⟩ := lowerRaw ctx (PType.ofBase (LinalgBaseType.tensor [k, n])) B
-  let outAux : RawPExpr SCFConst SCFBaseType := rpexpr{
-    fun A' : `((T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))) => fun B' : `((T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))) =>
-    fun i : b(.fin m) => fun j : b(.fin n) =>
-      c(.relu) (c(.foldl k) (fun acc : b(.float) => fun t : b(.fin k) => (c(.add) acc) (c(.mul) (A' i t) (B' t j))) c(.float 0))
-    }
+  let outAux : RawPExpr SCFConst SCFBaseType := matmulReluSCF m n k
   have : HasType (ctxS ctx) outAux ((((PType.ofBase (SCFBaseType.fin m)).fun
             ((PType.ofBase (SCFBaseType.fin k)).fun (PType.ofBase SCFBaseType.float))).fun
         (((PType.ofBase (SCFBaseType.fin k)).fun
@@ -264,6 +332,12 @@ def lowerRaw : (ctxL : List (Name × T)) → (ty : T) → (e : RawPExpr LinalgCo
   have hout : HasType (ctxS ctx) out (T.toS (PType.ofBase (LinalgBaseType.tensor [m, n]))) := by
     simp only [T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
     infer_instance
+  have hcorrect : (e.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, n]))).interp ≍ (out.toPExpr' (ctxS ctx) (T.toS (PType.ofBase (LinalgBaseType.tensor [m, n])))).interp := by
+    unfold e out outAux
+    rw! [hshape]
+    apply lowerRaw_reluMatmul_correct
+    sorry -- by induction hypthesis (can close when we have the plumbing)
+    sorry -- by induction hypthesis (can close when we have the plumbing)
   ⟨out, by rw [hty]; infer_instance⟩
 | ctx, ty, .const c, ⟨he⟩ =>
   match c with
