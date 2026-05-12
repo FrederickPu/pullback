@@ -69,6 +69,12 @@ instance instHasType_var {ctx : List (Name × PType BaseType)} {name : Name}
       grind
     }⟩
 
+@[simp]
+theorem inferType_of_hasType
+    {ctx : List (Name × PType BaseType)} {e : RawPExpr Const BaseType} {ty : PType BaseType}
+    [h : HasType ctx e ty] : e.inferType ctx = ty :=
+  h.hasType
+
 macro "inferHasType" : tactic =>
   `(tactic| (apply HasType.mk; simp [RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go, Typed.type]))
 
@@ -136,7 +142,7 @@ theorem toPExpr'_app
     (a.toPExpr' ctx A) := by
 simp [RawPExpr.toPExpr', RawPExpr.toPExpr]
 rw! (castMode := .all) [hf.1]
-simp [ha.1]
+simp
 
 @[simp]
 theorem toPExpr'_const

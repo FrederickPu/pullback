@@ -267,10 +267,10 @@ theorem lowerRaw_reluMatmul_correct
     {m n k : ℕ}
     {A B : RawPExpr LinalgConst LinalgBaseType}
     {A' B' : RawPExpr SCFConst SCFBaseType}
-    [HasType ctx A (PType.ofBase (LinalgBaseType.tensor [m, k]))]
-    [HasType ctx B (PType.ofBase (LinalgBaseType.tensor [k, n]))]
-    [HasType (ctxS ctx) A' (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))]
-    [HasType (ctxS ctx) B' (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))]
+    [hA : HasType ctx A (PType.ofBase (LinalgBaseType.tensor [m, k]))]
+    [hB : HasType ctx B (PType.ofBase (LinalgBaseType.tensor [k, n]))]
+    [hA' : HasType (ctxS ctx) A' (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))]
+    [hB' : HasType (ctxS ctx) B' (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))]
     (hcorrA : (fun args => interp args (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, k])) A)) ≍
               fun args => interp args (RawPExpr.toPExpr' (ctxS ctx) (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k]))) A'))
     (hcorrB : (fun args => interp args (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [k, n])) B)) ≍
@@ -280,7 +280,16 @@ theorem lowerRaw_reluMatmul_correct
           (((RawPExpr.const (LinalgConst.matmul m n k)).app A).app B)))) ≍
     fun args => interp args (RawPExpr.toPExpr' (ctxS ctx) (T.toS (PType.ofBase (LinalgBaseType.tensor [m, n])))
         (((matmulReluSCF m n k).app A').app B')) := by
-  sorry
+  -- have : ((RawPExpr.const (LinalgConst.relu [m, n])).app (((RawPExpr.const (LinalgConst.matmul m n k)).app A).app B)).inferType ctx |>.isSome := by
+  --   simp [PExpr.RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go, Typed.type]
+  conv =>
+    lhs
+    simp only [↓reduce_toPExpr']
+    /-
+    isSome simp left unsolved goals
+    -/
+
+
 
 #check interp
 /-
