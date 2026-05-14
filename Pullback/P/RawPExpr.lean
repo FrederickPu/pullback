@@ -147,10 +147,13 @@ simp
 @[simp]
 theorem toPExpr'_const
     {ctx : List (Name × PType BaseType)}
-    (c : Const) :
-  (RawPExpr.const c : RawPExpr Const BaseType).toPExpr' ctx (Typed.type c)
-  = PExpr.const c := by
-rfl
+    {ty : PType BaseType}
+    (c : Const)
+    [h : HasType ctx (RawPExpr.const c : RawPExpr Const BaseType) ty] :
+  (RawPExpr.const c : RawPExpr Const BaseType).toPExpr' ctx ty
+  = PExpr.const c (ty := ty) (hty := by simpa [RawPExpr.inferType] using h.hasType) := by
+  have hty : Typed.type c = ty := by simpa [RawPExpr.inferType] using h.hasType
+  subst hty; rfl
 
 @[simp]
 theorem toPExpr'_lam
@@ -240,7 +243,7 @@ def inferHasType (e vars : Expr) (BaseType Const instDecidable instTyped : Expr)
   -- Build the full `Option.get inferTypeApp proof` term, then simpExpr the whole thing
   let getApp ← mkAppOptM ``Option.get #[none, inferTypeApp, isSomeMvar]
   let ty ← simpExpr getApp
-    [`PExpr.RawPExpr.inferType, `List.findFinIdx?, `List.findFinIdx?.go, `Typed.type]
+    [`PExpr.RawPExpr.inferType, `List.findFinIdx?, `List.findFinIdx?.go]
 
   -- HasType : {Const BaseType} [Typed Const (PType BaseType)] [DecidableEq BaseType] ctxRaw e ty
   let hasTypeTy ← mkAppOptM ``HasType
@@ -298,8 +301,14 @@ simproc ↓ [simp, seval] reduce_toPExpr' (_) := fun e => do
     let eqProof  ← mkAppM ``toPExpr'_app #[fProof, xProof]
     return .visit { expr := result, proof? := some eqProof }
   else if fn2.isConstOf ``PExpr.RawPExpr.const then
-    -- const case can be handled by the const simp lemma
-    return .continue
+    -- args2 = [Const, BaseType, c]
+    let c := args2[2]!
+    let (ty, hProof) ← inferHasType ee ctxRaw BaseType Const instDecidable instTyped
+    let eqProof ← mkAppOptM ``PExpr.RawPExpr.toPExpr'_const
+      #[some BaseType, some Const, some instDecidable, some instTyped,
+        some ctxRaw, some ty, some c, some hProof]
+    let result := (← inferType eqProof).appArg!
+    return .visit { expr := result, proof? := some eqProof }
   else if fn2.isConstOf ``PExpr.RawPExpr.lam then
     -- args2 = [Const, BaseType, varName, argT, body]
     let varName := args2[2]!
