@@ -39,7 +39,7 @@ inductive PExpr (Const BaseType : Type) [Typed Const (PType BaseType)] : List (P
   Note that the inner most context variable is the left most element of the context list
 -/
 | lift {ty} {ctx ctx'} (e : PExpr Const BaseType ctx ty) : PExpr Const BaseType (ctx ++ ctx') ty
-| const {ctx} (c : Const): PExpr Const BaseType ctx (Typed.type c)
+| const {ctx} (c : Const) (ty : PType BaseType := Typed.type c) (hty : Typed.type c = ty := by rfl) : PExpr Const BaseType ctx ty
 | letE {ctx} {valT} {ty} (val : PExpr Const BaseType ctx valT) (body : PExpr Const BaseType (valT::ctx) ty) : PExpr Const BaseType ctx ty
 | var {ctx} (name : Fin ctx.length) (ty : PType BaseType := ctx.get name) (hty : ctx.get name = ty := by rfl) : PExpr Const BaseType ctx ty
 | app {ctx} {argT} {ty} (f : PExpr Const BaseType ctx (.fun argT ty)) (arg : PExpr Const BaseType ctx argT) : PExpr Const BaseType ctx ty
