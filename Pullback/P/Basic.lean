@@ -83,7 +83,7 @@ end DVector
 
 def PExpr.interp {Const BaseType : Type} [BasedType BaseType] [Typed Const (PType BaseType)] [Interp BaseType Const] {ctx} {ty} (args : DVector (ctx.map (·.type))) : (e : PExpr Const BaseType ctx ty) → ty.type
 | lift (ctx := ctx) e => e.interp (ctx := ctx) (cast (by simp) (args.take ctx.length))
-| const c => Interp.interp c
+| const c ty hty => cast (by simp [hty]) (Interp.interp c)
 | letE val body =>
   body.interp (DVector.cons' (val.interp args) args)
 | var name ty hty => cast (by grind) <| args.get (Fin.cast (by simp) name)
