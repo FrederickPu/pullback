@@ -338,7 +338,16 @@ simproc ↓ [simp, seval] reduce_toPExpr' (_) := fun e => do
     let result := (← inferType eqProof).appArg!
     return .visit { expr := result, proof? := some eqProof }
   else if fn2.isConstOf ``PExpr.RawPExpr.var then
-    -- var case can be handled by the var simp lemma
-    return .continue
+    -- args2 = [Const, BaseType, name]
+    let name := args2[2]!
+    let (ty, hType) ← inferHasType ee ctxRaw BaseType Const instDecidable instTyped
+    -- Convert HasType → HasVar via the iff; let Lean synthesize the instances via none
+    let iffExpr ← mkAppOptM ``PExpr.RawPExpr.HasType_iff_HasVar
+      #[some BaseType, some Const, none, none, some ctxRaw, some name, some ty]
+    let hv ← mkAppM ``Iff.mp #[iffExpr, hType]
+    let eqProof ← mkAppOptM ``PExpr.RawPExpr.toPExpr'_var
+      #[some BaseType, some Const, none, none, some ctxRaw, some name, some ty, some hv]
+    let result := (← inferType eqProof).appArg!
+    return .visit { expr := result, proof? := some eqProof }
   else
     return .continue

@@ -15,6 +15,12 @@ def NDArray.map {α : Type u} {β : Type v} (f : α → β) : {shape : List Nat}
 | [] => f
 | _::l => fun x => fun i => NDArray.map f (shape := l) (x i)
 
+@[simp] theorem NDArray.map_nil {α β : Type*} (f : α → β) (x : NDArray α []) :
+    NDArray.map f x = f x := rfl
+
+@[simp] theorem NDArray.map_cons {α β : Type*} (f : α → β) {d ds} (g : NDArray α (d :: ds)) (i : Fin d) :
+    NDArray.map f g i = NDArray.map f (g i) := rfl
+
 def scfFor {α}
   {Ts : List Type}
   (range : Std.Legacy.Range)
@@ -60,14 +66,18 @@ instance : BasedType SCFBaseType where
 abbrev S := PType SCFBaseType
 
 -- the scf type corresponding to `.tensor shape`
+@[reducible]
 def LinalgBaseType.tensor_toscf : (shape : List Nat) → S
 | [] => ptype{b(.float)}
 | a::l => ptype{b(.fin a) -> `(tensor_toscf l)}
 
+@[reducible]
 def LinalgBaseType.toSCF : LinalgBaseType → S
 | .float => .ofBase .float
 | .tensor shape => tensor_toscf shape
 
+
+@[reducible]
 def T.toS : T → S
 | .ofBase b => b.toSCF
 | .fun a b => .fun (T.toS a) (T.toS b)
@@ -259,6 +269,12 @@ instance instHasType_matmulReluSCFApp
   simp only [T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
   infer_instance
 
+#check String.reduceEq
+set_option maxHeartbeats 2000000
+
+example : `womp == `womp1 := by
+  simp?
+
 /-- Correctness of the fused relu-matmul lowering:
     given correct lowerings A' and B' of A and B, `(matmulReluSCF m n k).app A' |>.app B'`
     correctly lowers `relu(matmul(A, B))`. -/
@@ -282,13 +298,27 @@ theorem lowerRaw_reluMatmul_correct
         (((matmulReluSCF m n k).app A').app B')) := by
   -- have : ((RawPExpr.const (LinalgConst.relu [m, n])).app (((RawPExpr.const (LinalgConst.matmul m n k)).app A).app B)).inferType ctx |>.isSome := by
   --   simp [PExpr.RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go, Typed.type]
+  have : ((((matmulReluSCF m n k).app A').app B').inferType (ctxS ctx)).isSome := by
+    simp [PExpr.RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go, Typed.type, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
   conv =>
     lhs
-    simp only [↓reduce_toPExpr']
-    /-
-    isSome simp left unsolved goals
-    -/
-
+    simp [↓reduce_toPExpr', Typed.type]
+    simp [interp, Interp.interp]
+  conv =>
+    rhs
+    simp [↓reduce_toPExpr', Typed.type, T.toS, ctxS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
+    simp [interp, Interp.interp]
+    simp only [↓reduce_toPExpr', matmulReluSCF, T.toS]
+    simp only [interp, Interp.interp]
+    simp only [PExpr.RawPExpr.toPExpr'_var,
+           Fin.cast_mk,
+           cast_eq, List.findFinIdx?]
+    simp (discharger := native_decide) only  [List.findFinIdx?, List.findFinIdx?.go, DVector.get,
+           Fin.cast_mk, cast_eq, ↑reduceIte, beq_iff_eq, Name.str.injEq, String.reduceEq, and_true]
+    simp only [List.map_cons, List.length_cons, beq_iff_eq, Name.str.injEq, String.reduceEq,
+      and_false, ↓dreduceIte, BEq.rfl, Nat.reduceAdd, Fin.mk_one, Option.get_some, Fin.cast_cast,
+      List.get_eq_getElem, Fin.val_cast, Fin.coe_ofNat_eq_mod, Fin.cast_mk, List.getElem_cons_succ,
+      List.getElem_cons_zero, cast_eq, Fin.zero_eta, Fin.cast_zero, Nat.zero_mod]
 
 
 #check interp
