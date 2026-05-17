@@ -81,6 +81,43 @@ def get : {L : List Type} → (v : DVector L) → (i : Fin L.length) → L.get i
 
 end DVector
 
+open Lean Meta in
+private partial def getDVectorElem (dv : Expr) : Nat → MetaM (Option Expr)
+  | 0 => do
+    let dv' ← whnf dv
+    if dv'.getAppFn.isConstOf ``Prod.mk then
+      let args := dv'.getAppArgs
+      return if args.size >= 4 then some args[args.size - 2]! else none
+    else if dv'.getAppFn.isConstOf ``DVector.cons' then
+      let args := dv'.getAppArgs
+      return if args.size >= 2 then some args[args.size - 2]! else none
+    else return none
+  | n + 1 => do
+    let dv' ← whnf dv
+    if dv'.getAppFn.isConstOf ``Prod.mk then
+      let args := dv'.getAppArgs
+      if args.size >= 4 then return ← getDVectorElem args[args.size - 1]! n
+      else return none
+    else if dv'.getAppFn.isConstOf ``DVector.cons' then
+      let args := dv'.getAppArgs
+      if args.size >= 2 then return ← getDVectorElem args[args.size - 1]! n
+      else return none
+    else return none
+
+open Lean Meta Simp in
+simproc ↓ [simp] reduce_dvector_get (_) := fun e => do
+  unless e.getAppFn.isConstOf ``DVector.get do return .continue
+  let eArgs := e.getAppArgs
+  unless eArgs.size >= 3 do return .continue
+  let dv    := eArgs[1]!
+  let finI  := eArgs[2]!
+  let extra := eArgs.extract 3 eArgs.size
+  let finI' ← withTransparency .default (whnf finI)
+  let valExpr ← withTransparency .default (whnf (← mkAppM ``Fin.val #[finI']))
+  let .lit (.natVal n) := valExpr | return .continue
+  let some result ← withTransparency .default (getDVectorElem dv n) | return .continue
+  return .visit { expr := mkAppN result extra, proof? := none }
+
 def PExpr.interp {Const BaseType : Type} [BasedType BaseType] [Typed Const (PType BaseType)] [Interp BaseType Const] {ctx} {ty} (args : DVector (ctx.map (·.type))) : (e : PExpr Const BaseType ctx ty) → ty.type
 | lift (ctx := ctx) e => e.interp (ctx := ctx) (cast (by simp) (args.take ctx.length))
 | const c ty hty => cast (by simp [hty]) (Interp.interp c)
@@ -133,7 +170,7 @@ def RawPExpr.toPExpr {BaseType Const} [Typed Const (PType BaseType)] [DecidableE
     PExpr.var (Fin.cast hctx xi)
   cast (by {
     congr
-    simp [ctx, inferType, List.find?_eq_map_findFinIdx?_getElem, xi]
+    simp [ctx, inferType, xi]
   }) e
 | app f a, he =>
   have hfT := by

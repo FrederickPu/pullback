@@ -319,6 +319,8 @@ theorem lowerRaw_reluMatmul_correct
       and_false, ↓dreduceIte, BEq.rfl, Nat.reduceAdd, Fin.mk_one, Option.get_some, Fin.cast_cast,
       List.get_eq_getElem, Fin.val_cast, Fin.coe_ofNat_eq_mod, Fin.cast_mk, List.getElem_cons_succ,
       List.getElem_cons_zero, cast_eq, Fin.zero_eta, Fin.cast_zero, Nat.zero_mod]
+    simp only [↓reduce_dvector_get]
+  sorry
 
 
 #check interp
