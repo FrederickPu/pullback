@@ -225,7 +225,8 @@ theorem inferType_matmulReluSCF {ctx : List (Name × S)} {m n k} : RawPExpr.infe
               ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float))).fun
           ((PType.ofBase (SCFBaseType.fin m)).fun
             ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float)))))) := by
-  simp [matmulReluSCF, RawPExpr.inferType, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf, PExpr.RawPExpr.inferType, T.toS, Typed.type, List.findFinIdx?, List.findFinIdx?.go]
+  simp [RawPExpr.inferType, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf,
+    PExpr.RawPExpr.inferType, T.toS, Typed.type, List.findFinIdx?, List.findFinIdx?.go]
 
 instance instHasType_matmulReluSCF {ctx : List (Name × S)} {m n k : ℕ} :
     HasType ctx (matmulReluSCF m n k)
@@ -272,8 +273,15 @@ instance instHasType_matmulReluSCFApp
 #check String.reduceEq
 set_option maxHeartbeats 2000000
 
-example : `womp == `womp1 := by
-  simp?
+theorem cast_fun_apply_heq
+    {α α' : Sort u} {β : Sort v}
+    (h : (α → β) = (α' → β)) (f : α → β)
+    {a : α} {a' : α'} (ha : a ≍ a') :
+    cast h f a' = f a := by
+  have : α = α' := type_eq_of_heq ha
+  subst this; cases ha; rw [cast_eq]
+
+set_option pp.parens true
 
 /-- Correctness of the fused relu-matmul lowering:
     given correct lowerings A' and B' of A and B, `(matmulReluSCF m n k).app A' |>.app B'`
@@ -287,9 +295,9 @@ theorem lowerRaw_reluMatmul_correct
     [hB : HasType ctx B (PType.ofBase (LinalgBaseType.tensor [k, n]))]
     [hA' : HasType (ctxS ctx) A' (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))]
     [hB' : HasType (ctxS ctx) B' (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))]
-    (hcorrA : (fun args => interp args (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, k])) A)) ≍
+    (hcorrA : cast sorry (fun args => interp args (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, k])) A)) =
               fun args => interp args (RawPExpr.toPExpr' (ctxS ctx) (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k]))) A'))
-    (hcorrB : (fun args => interp args (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [k, n])) B)) ≍
+    (hcorrB : cast sorry (fun args => interp args (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [k, n])) B)) =
               fun args => interp args (RawPExpr.toPExpr' (ctxS ctx) (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n]))) B')) :
     (fun args => interp args (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, n]))
         ((RawPExpr.const (LinalgConst.relu [m, n])).app
@@ -306,22 +314,49 @@ theorem lowerRaw_reluMatmul_correct
     simp [interp, Interp.interp]
   conv =>
     rhs
-    simp [↓reduce_toPExpr', Typed.type, T.toS, ctxS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
+    simp [↓reduce_toPExpr', Typed.type]
     simp [interp, Interp.interp]
-    simp only [↓reduce_toPExpr', matmulReluSCF, T.toS]
+    simp only [↓reduce_toPExpr', matmulReluSCF]
     simp only [interp, Interp.interp]
     simp only [PExpr.RawPExpr.toPExpr'_var,
            Fin.cast_mk,
            cast_eq, List.findFinIdx?]
-    simp (discharger := native_decide) only  [List.findFinIdx?, List.findFinIdx?.go, DVector.get,
+    simp (discharger := native_decide) only [List.findFinIdx?, List.findFinIdx?.go, DVector.get,
            Fin.cast_mk, cast_eq, ↑reduceIte, beq_iff_eq, Name.str.injEq, String.reduceEq, and_true]
     simp only [List.map_cons, List.length_cons, beq_iff_eq, Name.str.injEq, String.reduceEq,
       and_false, ↓dreduceIte, BEq.rfl, Nat.reduceAdd, Fin.mk_one, Option.get_some, Fin.cast_cast,
       List.get_eq_getElem, Fin.val_cast, Fin.coe_ofNat_eq_mod, Fin.cast_mk, List.getElem_cons_succ,
       List.getElem_cons_zero, cast_eq, Fin.zero_eta, Fin.cast_zero, Nat.zero_mod]
-    simp only [↓reduce_dvector_get]
+    simp only [↓DVector.reduceGet]
+  simp [← congr_fun hcorrA, ← congr_fun hcorrB]
+  simp only [add, mul, foldl]
+  simp [NDArray.map, matmul]
+  apply Function.hfunext
+  simp [ctxS, T.type_toS]
   sorry
-
+  intro args args' hargs
+  apply Function.hfunext
+  rfl
+  intro i i' hi
+  have : i = i' := by rw [← heq_iff_eq]; exact hi
+  rw [← this]
+  apply Function.hfunext
+  rfl
+  intro j j' hj
+  have : j = j' := by rw [← heq_iff_eq]; exact hj
+  rw [← this]
+  congr
+  ext acc t
+  apply congrArg
+  congr
+  exact congrFun (congrFun
+  (cast_fun_apply_heq
+    (f := fun a => interp a (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, k])) A))
+    _ hargs).symm i) t
+  exact congrFun (congrFun
+  (cast_fun_apply_heq
+    (f := fun a => interp a (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [k, n])) B))
+    _ hargs).symm t) j
 
 #check interp
 /-

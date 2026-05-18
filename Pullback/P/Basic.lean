@@ -105,7 +105,7 @@ private partial def getDVectorElem (dv : Expr) : Nat → MetaM (Option Expr)
     else return none
 
 open Lean Meta Simp in
-simproc ↓ [simp] reduce_dvector_get (_) := fun e => do
+simproc ↓ [simp] DVector.reduceGet (_) := fun e => do
   unless e.getAppFn.isConstOf ``DVector.get do return .continue
   let eArgs := e.getAppArgs
   unless eArgs.size >= 3 do return .continue
