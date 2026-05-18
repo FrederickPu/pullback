@@ -281,7 +281,21 @@ theorem cast_fun_apply_heq
   have : α = α' := type_eq_of_heq ha
   subst this; cases ha; rw [cast_eq]
 
+-- Step 1: push cast through a lambda
+@[simp] theorem cast_lam_eq {α α' : Sort u} {β : Sort v}
+    (h : (α → β) = (α' → β)) (hα : α = α') (body : α → β) :
+    cast h (fun a => body a) = (fun a' => body (cast hα.symm a')) := by
+  cases hα; rfl
+
+-- Step 2: kill cast of an HEq-related value
+@[simp] theorem cast_eq_of_heq {α α' : Sort u} (h : α' = α)
+    {a : α} {a' : α'} (ha : a ≍ a') :
+    cast h a' = a := by
+  cases h; cases ha; rfl
+
+
 set_option pp.parens true
+set_option trace.grind.ematch.pattern true
 
 /-- Correctness of the fused relu-matmul lowering:
     given correct lowerings A' and B' of A and B, `(matmulReluSCF m n k).app A' |>.app B'`
@@ -310,27 +324,12 @@ theorem lowerRaw_reluMatmul_correct
     simp [PExpr.RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go, Typed.type, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
   conv =>
     lhs
-    simp [↓reduce_toPExpr', Typed.type]
-    simp [interp, Interp.interp]
+    simp only [↓reduce_toPExpr', Typed.type, interp, Interp.interp, cast_eq]
   conv =>
     rhs
-    simp [↓reduce_toPExpr', Typed.type]
-    simp [interp, Interp.interp]
-    simp only [↓reduce_toPExpr', matmulReluSCF]
-    simp only [interp, Interp.interp]
-    simp only [PExpr.RawPExpr.toPExpr'_var,
-           Fin.cast_mk,
-           cast_eq, List.findFinIdx?]
-    simp (discharger := native_decide) only [List.findFinIdx?, List.findFinIdx?.go, DVector.get,
-           Fin.cast_mk, cast_eq, ↑reduceIte, beq_iff_eq, Name.str.injEq, String.reduceEq, and_true]
-    simp only [List.map_cons, List.length_cons, beq_iff_eq, Name.str.injEq, String.reduceEq,
-      and_false, ↓dreduceIte, BEq.rfl, Nat.reduceAdd, Fin.mk_one, Option.get_some, Fin.cast_cast,
-      List.get_eq_getElem, Fin.val_cast, Fin.coe_ofNat_eq_mod, Fin.cast_mk, List.getElem_cons_succ,
-      List.getElem_cons_zero, cast_eq, Fin.zero_eta, Fin.cast_zero, Nat.zero_mod]
-    simp only [↓DVector.reduceGet]
+    simp only [↓reduce_toPExpr', matmulReluSCF, Typed.type, interp, Interp.interp, ↓DVector.reduceGet, cast_eq]
   simp [← congr_fun hcorrA, ← congr_fun hcorrB]
-  simp only [add, mul, foldl]
-  simp [NDArray.map, matmul]
+  simp only [add, mul, foldl, NDArray.map, matmul]
   apply Function.hfunext
   simp [ctxS, T.type_toS]
   sorry
