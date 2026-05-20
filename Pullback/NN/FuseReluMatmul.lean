@@ -271,6 +271,25 @@ instance instHasType_matmulReluSCFApp
   infer_instance
 
 #check String.reduceEq
+
+/-- `ext_heq x` applies `Function.hfunext` to a `f ≍ g` goal, closes the domain
+    type equality with `rfl`, introduces `x x' hx` where `hx : x ≍ x'`, converts
+    the HEq to Eq, and rewrites to collapse `x'` to `x`.
+
+    Chain multiple layers with `ext_heq i; ext_heq j`.
+
+    Uses `evalTactic` per step so each tactic sees the updated goal state — avoiding
+    the focused-scope issue that `·` bullets or `(...)` blocks would introduce. -/
+elab "ext_heq" x:ident : tactic => do
+  let xp := Lean.mkIdentFrom x (x.getId.appendAfter "'")
+  let hx := Lean.mkIdentFrom x (.mkSimple s!"h{x.getId.lastComponentAsString}")
+  Lean.Elab.Tactic.evalTactic (← `(tactic| apply Function.hfunext))
+  Lean.Elab.Tactic.evalTactic (← `(tactic| rfl))
+  Lean.Elab.Tactic.evalTactic (← `(tactic| intro $x $xp $hx))
+  Lean.Elab.Tactic.evalTactic (← `(tactic| have : $x = $xp := by rw [← heq_iff_eq]; exact $hx))
+  Lean.Elab.Tactic.evalTactic (← `(tactic| rw [← this]))
+  Lean.Elab.Tactic.evalTactic (← `(tactic| clear this $hx $xp))
+
 set_option maxHeartbeats 2000000
 
 theorem cast_fun_apply_heq
@@ -334,28 +353,19 @@ theorem lowerRaw_reluMatmul_correct
   simp [ctxS, T.type_toS]
   sorry
   intro args args' hargs
-  apply Function.hfunext
-  rfl
-  intro i i' hi
-  have : i = i' := by rw [← heq_iff_eq]; exact hi
-  rw [← this]
-  apply Function.hfunext
-  rfl
-  intro j j' hj
-  have : j = j' := by rw [← heq_iff_eq]; exact hj
-  rw [← this]
+  ext_heq i; ext_heq j
   congr
   ext acc t
   apply congrArg
   congr
   exact congrFun (congrFun
-  (cast_fun_apply_heq
-    (f := fun a => interp a (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, k])) A))
-    _ hargs).symm i) t
+      (cast_fun_apply_heq
+        (f := fun a => interp a (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, k])) A))
+        _ hargs).symm i) t
   exact congrFun (congrFun
-  (cast_fun_apply_heq
-    (f := fun a => interp a (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [k, n])) B))
-    _ hargs).symm t) j
+      (cast_fun_apply_heq
+        (f := fun a => interp a (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [k, n])) B))
+        _ hargs).symm t) j
 
 #check interp
 /-
