@@ -311,23 +311,7 @@ theorem lowerRaw_reluMatmul_correct
     simp only [↓reduce_toPExpr', matmulReluSCF, Typed.type, interp, Interp.interp, ↓DVector.reduceGet, cast_eq]
   simp [← congr_fun hcorrA, ← congr_fun hcorrB]
   simp only [add, mul, foldl, NDArray.map, matmul]
-  apply Function.hfunext
-  simp [ctxS, T.type_toS]
   sorry
-  intro args args' hargs
-  ext_heq i; ext_heq j
-  congr
-  ext acc t
-  apply congrArg
-  congr
-  exact congrFun (congrFun
-      (cast_fun_apply_heq
-        (f := fun a => interp a (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, k])) A))
-        _ hargs).symm i) t
-  exact congrFun (congrFun
-      (cast_fun_apply_heq
-        (f := fun a => interp a (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [k, n])) B))
-        _ hargs).symm t) j
 
 #check interp
 /-
