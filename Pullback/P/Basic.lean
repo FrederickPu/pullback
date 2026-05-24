@@ -642,6 +642,55 @@ theorem ofRawAsSplit?_isSome {Const BaseType : Type} [Typed Const (PType BaseTyp
     (ofRawAsSplit? ctxRaw ty e).isSome = true := by
   simp [ofRawAsSplit?, h.hasType]
 
+/-- Expected-type wrapper around `ofRawWithLocals?` starting with no local binders.
+
+This keeps the generated skeleton from carrying ambient context variables through visible
+lambdas, while still returning an expression at the expected type. -/
+@[reducible]
+def partialOfRawWithLocalsAs? {Const BaseType : Type} [Typed Const (PType BaseType)]
+    [DecidableEq BaseType]
+    (ctxRaw : List (Name × PType BaseType)) (ty : PType BaseType)
+    (e : RawPExpr Const BaseType) :
+    Option (RawPExpr.Partial (Const := Const) (BaseType := BaseType) ctxRaw ty) :=
+  match RawPExpr.Partial.ofRawWithLocals? ctxRaw [] e with
+  | some ⟨ty', pe⟩ =>
+      if h : ty' = ty then
+        some (h ▸ pe)
+      else
+        none
+  | none => none
+
+@[reducible]
+def generatedPartial? {Const BaseType : Type} [Typed Const (PType BaseType)]
+    [DecidableEq BaseType]
+    (ctxRaw : List (Name × PType BaseType)) (ty : PType BaseType)
+    (e : RawPExpr Const BaseType) :
+    Option (RawPExpr.Partial (Const := Const) (BaseType := BaseType) ctxRaw ty) :=
+  partialOfRawWithLocalsAs? ctxRaw ty e
+
+@[reducible]
+def generatedPartial {Const BaseType : Type} [Typed Const (PType BaseType)]
+    [DecidableEq BaseType]
+    (ctxRaw : List (Name × PType BaseType)) (ty : PType BaseType)
+    (e : RawPExpr Const BaseType) (h : (generatedPartial? ctxRaw ty e).isSome) :
+    RawPExpr.Partial (Const := Const) (BaseType := BaseType) ctxRaw ty :=
+  (generatedPartial? ctxRaw ty e).get h
+
+@[reducible]
+def generatedApp2 {Const BaseType : Type} [Typed Const (PType BaseType)]
+    [DecidableEq BaseType]
+    {ctxRaw : List (Name × PType BaseType)} {arg₁ arg₂ out : PType BaseType}
+    (fRaw : RawPExpr Const BaseType)
+    (hf : (generatedPartial? ctxRaw (arg₁.fun (arg₂.fun out)) fRaw).isSome)
+    {a b : RawPExpr Const BaseType}
+    (ha : HasType ctxRaw a arg₁) (hb : HasType ctxRaw b arg₂) :
+    RawPExpr.Partial (Const := Const) (BaseType := BaseType) ctxRaw out :=
+  RawPExpr.Partial.app
+    (RawPExpr.Partial.app
+      (generatedPartial ctxRaw (arg₁.fun (arg₂.fun out)) fRaw hf)
+      (RawPExpr.Partial.hole a ha))
+    (RawPExpr.Partial.hole b hb)
+
 def toPExpr {BaseType Const : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType]
     {ctxRaw : List (Name × PType BaseType)} {ty : PType BaseType} :

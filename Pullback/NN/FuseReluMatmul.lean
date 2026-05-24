@@ -218,6 +218,12 @@ example {m n k : Nat} :
       c(.relu) (c(.foldl k) (fun acc : b(.float) => fun t : b(.fin k) => (c(.add) acc) (c(.mul) (A' i t) (B' t j))) c(.float 0))
     }
 
+@[reducible] def reluMatmulRaw (m n k : Nat) : RawPExpr LinalgConst LinalgBaseType := rpexpr{
+  fun A : b(.tensor [m, k]) =>
+  fun B : b(.tensor [k, n]) =>
+    c(.relu [m, n]) (c(.matmul m n k) A B)
+}
+
 -- todo :: modify inferType so that rfl can close this
 -- (it should be possible since `m n k` are parametric arguments so you never check against them or have any unfold steps that depend on their value)
 theorem inferType_matmulReluSCF {ctx : List (Name × S)} {m n k} : RawPExpr.inferType ctx (matmulReluSCF m n k) = ((((PType.ofBase (SCFBaseType.fin m)).fun
@@ -278,40 +284,80 @@ set_option maxHeartbeats 2000000
 set_option pp.parens true
 set_option trace.grind.ematch.pattern true
 
-/-- Correctness of the fused relu-matmul lowering:
-    given correct lowerings A' and B' of A and B, `(matmulReluSCF m n k).app A' |>.app B'`
-    correctly lowers `relu(matmul(A, B))`. -/
+@[reducible]
+private def reluMatmulTy (m n k : Nat) : T :=
+  (PType.ofBase (LinalgBaseType.tensor [m, k])).fun
+    ((PType.ofBase (LinalgBaseType.tensor [k, n])).fun
+      (PType.ofBase (LinalgBaseType.tensor [m, n])))
+
+@[reducible]
+private def matmulReluSCFTy (m n k : Nat) : S :=
+  (((PType.ofBase (SCFBaseType.fin m)).fun
+      ((PType.ofBase (SCFBaseType.fin k)).fun (PType.ofBase SCFBaseType.float))).fun
+    (((PType.ofBase (SCFBaseType.fin k)).fun
+        ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float))).fun
+      ((PType.ofBase (SCFBaseType.fin m)).fun
+        ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float)))))
+
+/-- Correctness of the fused relu-matmul lowering using generated `Partial` skeletons:
+given correct lowerings `A'` and `B'` of `A` and `B`, the generated SCF partial
+correctly lowers the generated Linalg partial for `relu(matmul A B)`. -/
 theorem lowerRaw_reluMatmul_correct
     {ctx : List (Name × T)}
     {m n k : ℕ}
     {A B : RawPExpr LinalgConst LinalgBaseType}
     {A' B' : RawPExpr SCFConst SCFBaseType}
-    [hA : HasType ctx A (PType.ofBase (LinalgBaseType.tensor [m, k]))]
-    [hB : HasType ctx B (PType.ofBase (LinalgBaseType.tensor [k, n]))]
-    [hA' : HasType (ctxS ctx) A' (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))]
-    [hB' : HasType (ctxS ctx) B' (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))]
-    (hcorrA : cast sorry (fun args => interp args (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, k])) A)) =
-              fun args => interp args (RawPExpr.toPExpr' (ctxS ctx) (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k]))) A'))
-    (hcorrB : cast sorry (fun args => interp args (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [k, n])) B)) =
-              fun args => interp args (RawPExpr.toPExpr' (ctxS ctx) (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n]))) B')) :
-    (fun args => interp args (RawPExpr.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, n]))
-        ((RawPExpr.const (LinalgConst.relu [m, n])).app
-          (((RawPExpr.const (LinalgConst.matmul m n k)).app A).app B)))) ≍
-    fun args => interp args (RawPExpr.toPExpr' (ctxS ctx) (T.toS (PType.ofBase (LinalgBaseType.tensor [m, n])))
-        (((matmulReluSCF m n k).app A').app B')) := by
-  -- have : ((RawPExpr.const (LinalgConst.relu [m, n])).app (((RawPExpr.const (LinalgConst.matmul m n k)).app A).app B)).inferType ctx |>.isSome := by
-  --   simp [PExpr.RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go, Typed.type]
-  have : ((((matmulReluSCF m n k).app A').app B').inferType (ctxS ctx)).isSome := by
-    simp [PExpr.RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go, Typed.type, T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
-  conv =>
-    lhs
-    simp only [↓reduce_toPExpr', Typed.type, interp, Interp.interp, cast_eq]
-  conv =>
-    rhs
-    simp only [↓reduce_toPExpr', matmulReluSCF, Typed.type, interp, Interp.interp, ↓DVector.reduceGet, cast_eq]
-  simp [← congr_fun hcorrA, ← congr_fun hcorrB]
-  simp only [add, mul, foldl, NDArray.map, matmul]
-  sorry
+    (hA : HasType ctx A (PType.ofBase (LinalgBaseType.tensor [m, k])))
+    (hB : HasType ctx B (PType.ofBase (LinalgBaseType.tensor [k, n])))
+    (hA' : HasType (ctxS ctx) A' (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k]))))
+    (hB' : HasType (ctxS ctx) B' (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n]))))
+    (hcorrA :
+      (fun args => interp args
+        (RawPExpr.toPExprElab ctx (PType.ofBase (LinalgBaseType.tensor [m, k])) A)) ≍
+      fun args => interp args
+        (RawPExpr.toPExprElab (ctxS ctx)
+          (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k]))) A'))
+    (hcorrB :
+      (fun args => interp args
+        (RawPExpr.toPExprElab ctx (PType.ofBase (LinalgBaseType.tensor [k, n])) B)) ≍
+      fun args => interp args
+        (RawPExpr.toPExprElab (ctxS ctx)
+          (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n]))) B')) :
+    (fun args => interp args
+      (RawPExpr.Partial.generatedApp2
+        (ctxRaw := ctx)
+        (arg₁ := PType.ofBase (LinalgBaseType.tensor [m, k]))
+        (arg₂ := PType.ofBase (LinalgBaseType.tensor [k, n]))
+        (out := PType.ofBase (LinalgBaseType.tensor [m, n]))
+        (reluMatmulRaw m n k)
+        (by interpvc [reluMatmulRaw, reluMatmulTy])
+        hA hB).toPExpr) ≍
+    fun args => interp args
+      (RawPExpr.Partial.generatedApp2
+        (ctxRaw := ctxS ctx)
+        (arg₁ := T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))
+        (arg₂ := T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))
+        (out := T.toS (PType.ofBase (LinalgBaseType.tensor [m, n])))
+        (matmulReluSCF m n k)
+        (by interpvc [matmulReluSCFTy, matmulReluSCF, T.toS, LinalgBaseType.toSCF,
+          LinalgBaseType.tensor_toscf])
+        hA' hB').toPExpr := by
+  interpvc [reluMatmulRaw, reluMatmulTy, matmulReluSCFTy, matmulReluSCF, T.toS,
+    LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
+  apply Function.hfunext
+  · apply congrArg DVector
+    induction ctx with
+    | nil => rfl
+    | cons hd tl ih =>
+        cases hd
+        simp [ctxS, T.type_toS]
+  · intro args args' hargs
+    have hAargs := congr_heq hcorrA hargs
+    have hBargs := congr_heq hcorrB hargs
+    rw [hAargs, hBargs, heq_eq_eq]
+    simp [NDArray.map, matmul, foldl, add, mul, T.toS,
+      LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
+    rfl
 
 #check interp
 /-
@@ -323,10 +369,10 @@ theorem lowerRaw_reluMatmul_correct
   todo:: add faifullness of lowering condition to subtype property (ie interping the lowered result gives the same result and interping the original)
 -/
 def lowerRaw : (ctxL : List (Name × T)) → (ty : T) → (e : RawPExpr LinalgConst LinalgBaseType) →
-  [h : HasType ctxL e ty] → {x : RawPExpr SCFConst SCFBaseType // HasType (ctxS ctxL) x (T.toS ty)}
+  [HasType ctxL e ty] → {x : RawPExpr SCFConst SCFBaseType // HasType (ctxS ctxL) x (T.toS ty)}
 | ctx, ty, .app (.const (.relu shape)) (.app (.app (.const (.matmul m n k)) A) B), ⟨he⟩ =>
   let e : RawPExpr LinalgConst LinalgBaseType := .app (.const (.relu shape)) (.app (.app (.const (.matmul m n k)) A) B)
-  have ⟨hshape, hA, hB, hty⟩ : shape = [m, n] ∧
+  have ⟨_, hA, hB, hty⟩ : shape = [m, n] ∧
     HasType ctx A (PType.ofBase (LinalgBaseType.tensor [m, k])) ∧
     HasType ctx B (PType.ofBase (LinalgBaseType.tensor [k, n])) ∧
     ty = PType.ofBase (LinalgBaseType.tensor [m, n]) := by
@@ -363,12 +409,6 @@ def lowerRaw : (ctxL : List (Name × T)) → (ty : T) → (e : RawPExpr LinalgCo
   have hout : HasType (ctxS ctx) out (T.toS (PType.ofBase (LinalgBaseType.tensor [m, n]))) := by
     simp only [T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
     infer_instance
-  have hcorrect : (e.toPExpr' ctx (PType.ofBase (LinalgBaseType.tensor [m, n]))).interp ≍ (out.toPExpr' (ctxS ctx) (T.toS (PType.ofBase (LinalgBaseType.tensor [m, n])))).interp := by
-    unfold e out outAux
-    rw! [hshape]
-    apply lowerRaw_reluMatmul_correct
-    sorry -- by induction hypthesis (can close when we have the plumbing)
-    sorry -- by induction hypthesis (can close when we have the plumbing)
   ⟨out, by rw [hty]; infer_instance⟩
 | ctx, ty, .const c, ⟨he⟩ =>
   match c with

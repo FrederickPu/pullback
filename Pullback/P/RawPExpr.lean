@@ -268,6 +268,23 @@ open Lean Meta Simp
 open Lean Meta Elab Term PrettyPrinter
 open PExpr RawPExpr HasType Lean Meta Simp
 
+syntax (name := interpvc) "interpvc"
+  (" [" ((Lean.Parser.Tactic.simpStar <|> Lean.Parser.Tactic.simpErase <|>
+    Lean.Parser.Tactic.simpLemma),*,?) "]")? : tactic
+
+macro_rules
+  | `(tactic| interpvc $[[$rules,*]]?) => do
+      let rules' := rules.getD ⟨#[]⟩
+      `(tactic|
+        (simp [RawPExpr.Partial.generatedApp2, RawPExpr.Partial.generatedPartial,
+          RawPExpr.Partial.generatedPartial?, RawPExpr.Partial.partialOfRawWithLocalsAs?,
+          RawPExpr.Partial.ofRawWithLocals?, RawPExpr.Partial.findVarWithLocals?,
+          RawPExpr.Partial.toPExpr, PExpr.interp, Interp.interp, List.findFinIdx?,
+          List.findFinIdx?.go, List.map_nil, List.map_cons, List.length_cons, List.length_nil,
+          Nat.reduceAdd, Fin.cast_eq_self, Option.bind, Option.pure_def, dif_pos, cast_eq,
+          ↓DVector.reduceGet, PType.type, BasedType.valueType, Typed.type, $rules',*]
+          <;> try (funext i j) <;> try congr))
+
 -- Helper: build `(name, ty) :: ctxRaw` as a Lean Expr.
 private def mkExtCtx (name ty ctxRaw : Expr) : MetaM Expr := do
   let pair ← mkAppM ``Prod.mk #[name, ty]
