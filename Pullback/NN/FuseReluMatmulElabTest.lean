@@ -152,8 +152,7 @@ theorem lowerRaw_reluMatmul_correct_partial
           matmulReluSCFRaw, matmulReluSCFTy, matmulReluSCF, T.toS,
           LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf, Typed.type])
       hA' hB'
-  change (fun args => interp args lhsPartial.toPExpr) ≍
-    fun args => interp args rhsPartial.toPExpr
+  change (fun args => interp args lhsPartial.toPExpr) ≍ fun args => interp args rhsPartial.toPExpr
   have hlhs :
       (fun args => interp args lhsPartial.toPExpr) =
       fun args => NDArray.map relu
