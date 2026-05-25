@@ -283,62 +283,6 @@ def RawPExpr.elab {Const BaseType : Type} [Typed Const (PType BaseType)]
         rw [← ht] at h
         simp at h
 
-def RawPExpr.toPExpr {BaseType Const} [Typed Const (PType BaseType)] [DecidableEq BaseType] (ctxRaw : List (Name × PType BaseType)) :
-  (e : RawPExpr Const BaseType) → (he : (e.inferType ctxRaw).isSome) →
-    (PExpr Const BaseType (ctxRaw.map (·.2)) ((e.inferType ctxRaw).get he))
-| var x, he =>
-  let xi := (ctxRaw.findFinIdx? (·.1 == x)).get (by grind [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff])
-  let ctx := ctxRaw.map (·.2)
-  have hctx : ctxRaw.length = ctx.length := by simp [ctx]
-  let varTy : PType BaseType := ctx.get (Fin.cast hctx xi)
-  let e : PExpr Const BaseType ctx (ctx.get (Fin.cast hctx xi)) :=
-    PExpr.var (Fin.cast hctx xi)
-  cast (by {
-    congr
-    simp [ctx, inferType, xi]
-  }) e
-| app f a, he =>
-  have hfT := by
-    grind [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff]
-  have : (inferType ctxRaw f) = (f.inferType ctxRaw).get hfT := by grind
-  match hf : (f.inferType ctxRaw).get hfT with
-  | .fun dom codom =>
-    let ctx := ctxRaw.map (·.2)
-    have ha : (a.inferType ctxRaw).isSome := by
-      simp only [inferType, Option.pure_def, Option.bind_eq_bind, Option.bind_fun_none] at he
-      rw [this, hf] at he
-      grind [Option.isSome_iff_exists, Option.bind_eq_some_iff]
-    let aT := (a.inferType ctxRaw).get ha
-    let a' : PExpr Const BaseType ctx aT := a.toPExpr ctxRaw ha
-    have hdom : dom = aT := by
-      simp only [inferType, Option.pure_def, Option.bind_eq_bind, Option.bind_fun_none] at he
-      rw [this, hf] at he
-      grind [Option.isSome_iff_exists, Option.bind_eq_some_iff]
-    have hf : (f.inferType ctxRaw).isSome := by
-      simp only [inferType, Option.pure_def, Option.bind_eq_bind, Option.bind_fun_none] at he
-      rw [this, hf] at he
-      grind [Option.isSome_iff_exists, Option.bind_eq_some_iff]
-    let f' : PExpr Const BaseType ctx (.fun aT codom) := cast (by grind) (f.toPExpr ctxRaw hf)
-    let e : PExpr Const BaseType ctx codom := .app f' a'
-    cast (by grind [inferType]) e
-  | .prod _ _ | .ofBase _ => by
-    simp [inferType] at he
-    rw [this, hf] at he
-    simp at he
-| lam varname vartype body, he =>
-  cast (by grind [inferType]) <|
-    PExpr.lam vartype (body.toPExpr ((varname, vartype)::ctxRaw) (by grind [inferType]))
-| letE x v body, he =>
-  have hv : (v.inferType ctxRaw).isSome := by
-    grind [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff]
-  let vT := (v.inferType ctxRaw).get hv
-  let v' := v.toPExpr ctxRaw hv
-  have hbody : (inferType ((x, vT) :: ctxRaw) body).isSome := by
-    grind [inferType, Option.isSome_iff_exists, Option.bind_eq_some_iff]
-  cast (by grind [inferType]) <|
-    PExpr.letE v' (body.toPExpr ((x, vT)::ctxRaw) hbody)
-| const c, he => .const c
-
 class HasType {Const BaseType} [Typed Const (PType BaseType)] [DecidableEq BaseType] (ctxRaw : List (Name × PType BaseType)) (e : RawPExpr (Const := Const) (BaseType := BaseType)) (ty : outParam (PType BaseType)) where
   hasType : e.inferType ctxRaw = ty
 
@@ -369,6 +313,42 @@ def RawPExpr.toPExprElab {BaseType Const : Type} [Typed Const (PType BaseType)]
           have hHas : e.inferType ctxRaw = some ty := he.hasType
           rw [hc, hHas] at ht
           simp at ht
+
+/-- Elaborate raw syntax at its inferred type.
+
+This is the surface API for callers that want the type computed by `inferType`. It is a
+thin wrapper around `toPExprElab`; the only proof work is packaging the successful
+`inferType` result as a `HasType` instance. -/
+def RawPExpr.toPExpr {BaseType Const} [Typed Const (PType BaseType)] [DecidableEq BaseType]
+    (ctxRaw : List (Name × PType BaseType)) :
+    (e : RawPExpr Const BaseType) → (he : (e.inferType ctxRaw).isSome) →
+      PExpr Const BaseType (ctxRaw.map (·.2)) ((e.inferType ctxRaw).get he) :=
+  fun e he =>
+    let ty := (e.inferType ctxRaw).get he
+    have hty : e.inferType ctxRaw = some ty := by
+      cases h : e.inferType ctxRaw with
+      | none => simp [h] at he
+      | some _ => simp [ty, h]
+    letI : HasType ctxRaw e ty := ⟨hty⟩
+    RawPExpr.toPExprElab ctxRaw ty e
+
+theorem RawPExpr.toPExpr_heq_toPExprElab {BaseType Const}
+    [Typed Const (PType BaseType)] [DecidableEq BaseType]
+    {ctxRaw : List (Name × PType BaseType)} {e : RawPExpr Const BaseType}
+    {ty : PType BaseType} [h : HasType ctxRaw e ty]
+    (he : (e.inferType ctxRaw).isSome) :
+    RawPExpr.toPExpr ctxRaw e he ≍ RawPExpr.toPExprElab ctxRaw ty e := by
+  have hget : (e.inferType ctxRaw).get he = ty := by
+    generalize hopt : e.inferType ctxRaw = opt at he ⊢
+    cases opt with
+    | none => simp at he
+    | some ty' =>
+        have hty' : ty' = ty := by
+          exact Option.some.inj (by simpa [hopt] using h.hasType)
+        simp [hty']
+  cases hget
+  rw [heq_iff_eq]
+  simp [RawPExpr.toPExpr, h.hasType]
 
 /-- A typed partial raw expression: ordinary constructors are elaborated structurally,
 while `hole` embeds an opaque raw expression at a known type.
@@ -710,5 +690,4 @@ end RawPExpr.Partial
 def RawPExpr.toPExpr' {BaseType Const} [Typed Const (PType BaseType)] [DecidableEq BaseType]  (ctxRaw : List (Name × PType BaseType)) (ty : PType BaseType) :
   (e : RawPExpr Const BaseType) → [HasType ctxRaw e ty] →
     (PExpr Const BaseType (ctxRaw.map (·.2)) ty) :=
-  fun e he =>
-    cast (by grind [HasType]) (e.toPExpr ctxRaw (by grind [HasType]))
+  fun e he => RawPExpr.toPExprElab ctxRaw ty e

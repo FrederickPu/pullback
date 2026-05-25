@@ -277,12 +277,9 @@ instance instHasType_matmulReluSCFApp
   simp only [T.toS, LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
   infer_instance
 
-#check String.reduceEq
-
 set_option maxHeartbeats 2000000
 
 set_option pp.parens true
-set_option trace.grind.ematch.pattern true
 
 @[reducible]
 private def reluMatmulTy (m n k : Nat) : T :=
@@ -299,10 +296,27 @@ private def matmulReluSCFTy (m n k : Nat) : S :=
       ((PType.ofBase (SCFBaseType.fin m)).fun
         ((PType.ofBase (SCFBaseType.fin n)).fun (PType.ofBase SCFBaseType.float)))))
 
-/-- Correctness of the fused relu-matmul lowering using generated `Partial` skeletons:
-given correct lowerings `A'` and `B'` of `A` and `B`, the generated SCF partial
-correctly lowers the generated Linalg partial for `relu(matmul A B)`. -/
-theorem lowerRaw_reluMatmul_correct
+private theorem reluMatmulRaw_generatedPartial_isSome
+    {ctx : List (Name × T)} {m n k : Nat} :
+    (RawPExpr.Partial.generatedPartial? ctx (reluMatmulTy m n k)
+      (reluMatmulRaw m n k)).isSome := by
+  interpvc [reluMatmulRaw, reluMatmulTy]
+
+private theorem reluMatmulRaw_hasType
+    {ctx : List (Name × T)} {m n k : Nat} :
+    HasType ctx (reluMatmulRaw m n k) (reluMatmulTy m n k) := by
+  apply HasType.mk
+  simp [RawPExpr.inferType, reluMatmulTy, Typed.type,
+    List.findFinIdx?, List.findFinIdx?.go]
+
+private theorem matmulReluSCF_generatedPartial_isSome
+    {ctx : List (Name × S)} {m n k : Nat} :
+    (RawPExpr.Partial.generatedPartial? ctx (matmulReluSCFTy m n k)
+      (matmulReluSCF m n k)).isSome := by
+  interpvc [matmulReluSCFTy, matmulReluSCF, T.toS,
+    LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
+
+private theorem lowerRaw_reluMatmul_correct_partial
     {ctx : List (Name × T)}
     {m n k : ℕ}
     {A B : RawPExpr LinalgConst LinalgBaseType}
@@ -330,7 +344,7 @@ theorem lowerRaw_reluMatmul_correct
         (arg₂ := PType.ofBase (LinalgBaseType.tensor [k, n]))
         (out := PType.ofBase (LinalgBaseType.tensor [m, n]))
         (reluMatmulRaw m n k)
-        (by interpvc [reluMatmulRaw, reluMatmulTy])
+        (reluMatmulRaw_generatedPartial_isSome (ctx := ctx) (m := m) (n := n) (k := k))
         hA hB).toPExpr) ≍
     fun args => interp args
       (RawPExpr.Partial.generatedApp2
@@ -339,8 +353,7 @@ theorem lowerRaw_reluMatmul_correct
         (arg₂ := T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))
         (out := T.toS (PType.ofBase (LinalgBaseType.tensor [m, n])))
         (matmulReluSCF m n k)
-        (by interpvc [matmulReluSCFTy, matmulReluSCF, T.toS, LinalgBaseType.toSCF,
-          LinalgBaseType.tensor_toscf])
+        (matmulReluSCF_generatedPartial_isSome (ctx := ctxS ctx) (m := m) (n := n) (k := k))
         hA' hB').toPExpr := by
   interpvc [reluMatmulRaw, reluMatmulTy, matmulReluSCFTy, matmulReluSCF, T.toS,
     LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
@@ -354,12 +367,298 @@ theorem lowerRaw_reluMatmul_correct
   · intro args args' hargs
     have hAargs := congr_heq hcorrA hargs
     have hBargs := congr_heq hcorrB hargs
-    rw [hAargs, hBargs, heq_eq_eq]
-    simp [NDArray.map, matmul, foldl, add, mul, T.toS,
-      LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
+    rw [hAargs, hBargs]
+    set AV := interp args'
+      (RawPExpr.toPExprElab (ctxS ctx)
+        (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k]))) A')
+    set BV := interp args'
+      (RawPExpr.toPExprElab (ctxS ctx)
+        (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n]))) B')
+    simp
     rfl
 
-#check interp
+private theorem RawPExpr.toPExprElab_of_elab?_eq
+    {Const BaseType : Type} [Typed Const (PType BaseType)] [DecidableEq BaseType]
+    {ctxRaw : List (Name × PType BaseType)} {ty : PType BaseType}
+    {e : RawPExpr Const BaseType}
+    {pe : PExpr Const BaseType (ctxRaw.map (·.2)) ty}
+    [HasType ctxRaw e ty]
+    (h : RawPExpr.elab? ctxRaw e = some ⟨ty, pe⟩) :
+    RawPExpr.toPExprElab ctxRaw ty e = pe := by
+  unfold RawPExpr.toPExprElab
+  split
+  · rename_i ty' pe' hc
+    have hs : Sigma.mk ty' pe' = Sigma.mk ty pe := Option.some.inj (hc.symm.trans h)
+    cases hs
+    rw [cast_eq]
+  · rename_i hc
+    rw [hc] at h
+    simp at h
+
+private theorem elab?_reluMatmulRaw_eq_generatedPartial
+    {ctx : List (Name × T)} {m n k : ℕ} :
+    RawPExpr.elab? ctx (reluMatmulRaw m n k) =
+      some ⟨reluMatmulTy m n k,
+        (RawPExpr.Partial.generatedPartial ctx (reluMatmulTy m n k)
+          (reluMatmulRaw m n k)
+          (reluMatmulRaw_generatedPartial_isSome (ctx := ctx) (m := m) (n := n) (k := k))).toPExpr⟩ := by
+  simp [RawPExpr.elab?, RawPExpr.Partial.generatedPartial,
+    RawPExpr.Partial.generatedPartial?, RawPExpr.Partial.partialOfRawWithLocalsAs?,
+    RawPExpr.Partial.ofRawWithLocals?, RawPExpr.Partial.findVarWithLocals?,
+    RawPExpr.Partial.toPExpr, reluMatmulRaw, reluMatmulTy, Typed.type,
+    List.findFinIdx?, List.findFinIdx?.go, List.map_cons, List.length_cons,
+    Nat.reduceAdd, Option.bind, Option.pure_def, dif_pos, cast_eq]
+  congr <;> simp
+
+private theorem elab?_matmulReluSCF_eq_generatedPartial
+    {ctx : List (Name × S)} {m n k : ℕ} :
+    RawPExpr.elab? ctx (matmulReluSCF m n k) =
+      some ⟨matmulReluSCFTy m n k,
+        (RawPExpr.Partial.generatedPartial ctx (matmulReluSCFTy m n k)
+          (matmulReluSCF m n k)
+          (matmulReluSCF_generatedPartial_isSome (ctx := ctx) (m := m) (n := n) (k := k))).toPExpr⟩ := by
+  simp [RawPExpr.elab?, RawPExpr.Partial.generatedPartial,
+    RawPExpr.Partial.generatedPartial?, RawPExpr.Partial.partialOfRawWithLocalsAs?,
+    RawPExpr.Partial.ofRawWithLocals?, RawPExpr.Partial.findVarWithLocals?,
+    RawPExpr.Partial.toPExpr, matmulReluSCF, matmulReluSCFTy, T.toS,
+    LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf, Typed.type,
+    List.findFinIdx?, List.findFinIdx?.go, List.map_cons, List.length_cons,
+    Nat.reduceAdd, Fin.cast_eq_self, Option.bind, Option.pure_def, dif_pos, cast_eq]
+  congr <;> simp
+
+private theorem toPExprElab_reluMatmulRaw_eq_generatedPartial
+    {ctx : List (Name × T)} {m n k : ℕ}
+    [HasType ctx (reluMatmulRaw m n k) (reluMatmulTy m n k)] :
+    RawPExpr.toPExprElab ctx (reluMatmulTy m n k) (reluMatmulRaw m n k) =
+      (RawPExpr.Partial.generatedPartial ctx (reluMatmulTy m n k)
+        (reluMatmulRaw m n k)
+        (reluMatmulRaw_generatedPartial_isSome (ctx := ctx) (m := m) (n := n) (k := k))).toPExpr :=
+  RawPExpr.toPExprElab_of_elab?_eq
+    (h := elab?_reluMatmulRaw_eq_generatedPartial (ctx := ctx) (m := m) (n := n) (k := k))
+
+private theorem toPExprElab_matmulReluSCF_eq_generatedPartial
+    {ctx : List (Name × S)} {m n k : ℕ}
+    [HasType ctx (matmulReluSCF m n k) (matmulReluSCFTy m n k)] :
+    RawPExpr.toPExprElab ctx (matmulReluSCFTy m n k) (matmulReluSCF m n k) =
+      (RawPExpr.Partial.generatedPartial ctx (matmulReluSCFTy m n k)
+        (matmulReluSCF m n k)
+        (matmulReluSCF_generatedPartial_isSome (ctx := ctx) (m := m) (n := n) (k := k))).toPExpr :=
+  RawPExpr.toPExprElab_of_elab?_eq
+    (h := elab?_matmulReluSCF_eq_generatedPartial (ctx := ctx) (m := m) (n := n) (k := k))
+
+private theorem inferType_isSome_of_hasType
+    {Const BaseType : Type} [Typed Const (PType BaseType)] [DecidableEq BaseType]
+    {ctxRaw : List (Name × PType BaseType)} {e : RawPExpr Const BaseType}
+    {ty : PType BaseType}
+    (h : HasType ctxRaw e ty) :
+    (RawPExpr.inferType ctxRaw e).isSome := by
+  rw [h.hasType]
+  simp
+
+private theorem reluMatmulApp_isSome
+    {ctx : List (Name × T)} {m n k : ℕ}
+    {A B : RawPExpr LinalgConst LinalgBaseType}
+    (hA : HasType ctx A (PType.ofBase (LinalgBaseType.tensor [m, k])))
+    (hB : HasType ctx B (PType.ofBase (LinalgBaseType.tensor [k, n]))) :
+    (RawPExpr.inferType ctx
+      ((RawPExpr.const (LinalgConst.relu [m, n])).app
+        (((RawPExpr.const (LinalgConst.matmul m n k)).app A).app B))).isSome := by
+  letI := hA
+  letI := hB
+  exact inferType_isSome_of_hasType
+    (inferInstance : HasType ctx
+      ((RawPExpr.const (LinalgConst.relu [m, n])).app
+        (((RawPExpr.const (LinalgConst.matmul m n k)).app A).app B))
+      (PType.ofBase (LinalgBaseType.tensor [m, n])))
+
+private theorem reluMatmulRawApp_isSome
+    {ctx : List (Name × T)} {m n k : ℕ}
+    {A B : RawPExpr LinalgConst LinalgBaseType}
+    (hA : HasType ctx A (PType.ofBase (LinalgBaseType.tensor [m, k])))
+    (hB : HasType ctx B (PType.ofBase (LinalgBaseType.tensor [k, n]))) :
+    (RawPExpr.inferType ctx (((reluMatmulRaw m n k).app A).app B)).isSome := by
+  letI := reluMatmulRaw_hasType (ctx := ctx) (m := m) (n := n) (k := k)
+  letI := hA
+  letI := hB
+  exact inferType_isSome_of_hasType
+    (inferInstance : HasType ctx (((reluMatmulRaw m n k).app A).app B)
+      (PType.ofBase (LinalgBaseType.tensor [m, n])))
+
+private theorem matmulReluSCFApp_isSome
+    {ctx : List (Name × T)} {m n k : ℕ}
+    {A' B' : RawPExpr SCFConst SCFBaseType}
+    (hA' : HasType (ctxS ctx) A' (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k]))))
+    (hB' : HasType (ctxS ctx) B' (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))) :
+    (RawPExpr.inferType (ctxS ctx)
+      (((matmulReluSCF m n k).app A').app B')).isSome := by
+  letI := hA'
+  letI := hB'
+  exact inferType_isSome_of_hasType
+    (inferInstance : HasType (ctxS ctx)
+      (((matmulReluSCF m n k).app A').app B')
+      (T.toS (PType.ofBase (LinalgBaseType.tensor [m, n]))))
+
+private theorem interp_toPExpr_heq_toPExprElab
+    {Const BaseType : Type} [BasedType BaseType] [Typed Const (PType BaseType)]
+    [DecidableEq BaseType] [Interp BaseType Const]
+    {ctxRaw : List (Name × PType BaseType)} {e : RawPExpr Const BaseType}
+    {ty : PType BaseType} [h : HasType ctxRaw e ty]
+    (he : (RawPExpr.inferType ctxRaw e).isSome) :
+    (fun args => interp args (RawPExpr.toPExpr ctxRaw e he)) ≍
+    fun args => interp args (RawPExpr.toPExprElab ctxRaw ty e) := by
+  have hget : (RawPExpr.inferType ctxRaw e).get he = ty := by
+    generalize hopt : RawPExpr.inferType ctxRaw e = opt at he ⊢
+    cases opt with
+    | none => simp at he
+    | some ty' =>
+        have hty' : ty' = ty := by
+          have hoptTy : some ty' = some ty := hopt ▸ h.hasType
+          exact Option.some.inj hoptTy
+        simp [hty']
+  cases hget
+  apply Function.hfunext
+  · rfl
+  · intro args args' hargs
+    have hargs_eq : args = args' := by
+      rw [← heq_iff_eq]
+      exact hargs
+    subst args'
+    rw [heq_iff_eq]
+    have hpe : RawPExpr.toPExpr ctxRaw e he =
+        RawPExpr.toPExprElab ctxRaw ((RawPExpr.inferType ctxRaw e).get he) e := by
+      rw [← heq_iff_eq]
+      exact RawPExpr.toPExpr_heq_toPExprElab (ctxRaw := ctxRaw) (e := e) he
+    rw [hpe]
+
+private theorem interp_toPExpr_heq_generatedApp2
+    {Const BaseType : Type} [BasedType BaseType] [Typed Const (PType BaseType)]
+    [DecidableEq BaseType] [Interp BaseType Const]
+    {ctxRaw : List (Name × PType BaseType)}
+    {arg₁ arg₂ out : PType BaseType}
+    {fRaw a b : RawPExpr Const BaseType}
+    [HasType ctxRaw fRaw (arg₁.fun (arg₂.fun out))]
+    (ha : HasType ctxRaw a arg₁) (hb : HasType ctxRaw b arg₂)
+    (hf : (RawPExpr.Partial.generatedPartial? ctxRaw (arg₁.fun (arg₂.fun out)) fRaw).isSome)
+    (hFgen : RawPExpr.toPExprElab ctxRaw (arg₁.fun (arg₂.fun out)) fRaw =
+      (RawPExpr.Partial.generatedPartial ctxRaw (arg₁.fun (arg₂.fun out)) fRaw hf).toPExpr)
+    (he : (RawPExpr.inferType ctxRaw ((fRaw.app a).app b)).isSome) :
+    (fun args => interp args (RawPExpr.toPExpr ctxRaw ((fRaw.app a).app b) he)) ≍
+    fun args => interp args
+      (RawPExpr.Partial.generatedApp2
+        (ctxRaw := ctxRaw) (arg₁ := arg₁) (arg₂ := arg₂) (out := out)
+        fRaw hf ha hb).toPExpr := by
+  letI := ha
+  letI := hb
+  have hfa : HasType ctxRaw (fRaw.app a) (arg₂.fun out) := inferInstance
+  letI := hfa
+  have hRaw := interp_toPExpr_heq_toPExprElab
+    (ctxRaw := ctxRaw) (e := (fRaw.app a).app b) (ty := out) he
+  have hElab :
+      RawPExpr.toPExprElab ctxRaw out ((fRaw.app a).app b) =
+        (RawPExpr.Partial.generatedApp2
+          (ctxRaw := ctxRaw) (arg₁ := arg₁) (arg₂ := arg₂) (out := out)
+          fRaw hf ha hb).toPExpr := by
+    rw [RawPExpr.toPExprElab_app
+      (f := fRaw.app a) (a := b) (A := arg₂) (B := out)]
+    rw [RawPExpr.toPExprElab_app
+      (f := fRaw) (a := a) (A := arg₁) (B := arg₂.fun out)]
+    simp [RawPExpr.Partial.toPExpr, hFgen]
+  rw [hElab] at hRaw
+  exact hRaw
+
+/-- Correctness of the fused relu-matmul lowering:
+given correct lowerings `A'` and `B'` of `A` and `B`, the lowered raw expression has
+the same interpretation as the original raw `relu(matmul A B)` expression. -/
+theorem lowerRaw_reluMatmul_correct
+    {ctx : List (Name × T)}
+    {m n k : ℕ}
+    {A B : RawPExpr LinalgConst LinalgBaseType}
+    {A' B' : RawPExpr SCFConst SCFBaseType}
+    (hA : HasType ctx A (PType.ofBase (LinalgBaseType.tensor [m, k])))
+    (hB : HasType ctx B (PType.ofBase (LinalgBaseType.tensor [k, n])))
+    (hA' : HasType (ctxS ctx) A' (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k]))))
+    (hB' : HasType (ctxS ctx) B' (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n]))))
+    (hcorrA :
+      (fun args => interp args
+        (RawPExpr.toPExpr ctx A (inferType_isSome_of_hasType hA))) ≍
+      fun args => interp args
+        (RawPExpr.toPExpr (ctxS ctx) A' (inferType_isSome_of_hasType hA')))
+    (hcorrB :
+      (fun args => interp args
+        (RawPExpr.toPExpr ctx B (inferType_isSome_of_hasType hB))) ≍
+      fun args => interp args
+        (RawPExpr.toPExpr (ctxS ctx) B' (inferType_isSome_of_hasType hB'))) :
+    (fun args => interp args
+      (RawPExpr.toPExpr ctx
+        (((reluMatmulRaw m n k).app A).app B)
+        (reluMatmulRawApp_isSome hA hB))) ≍
+    fun args => interp args
+      (RawPExpr.toPExpr (ctxS ctx)
+        (((matmulReluSCF m n k).app A').app B')
+        (matmulReluSCFApp_isSome hA' hB')) := by
+  letI := hA
+  letI := hB
+  letI := hA'
+  letI := hB'
+  have hA_to_elab := interp_toPExpr_heq_toPExprElab
+    (ctxRaw := ctx) (e := A) (ty := PType.ofBase (LinalgBaseType.tensor [m, k]))
+    (inferType_isSome_of_hasType hA)
+  have hA'_to_elab := interp_toPExpr_heq_toPExprElab
+    (ctxRaw := ctxS ctx) (e := A')
+    (ty := T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))
+    (inferType_isSome_of_hasType hA')
+  have hcorrA_elab :
+      (fun args => interp args
+        (RawPExpr.toPExprElab ctx (PType.ofBase (LinalgBaseType.tensor [m, k])) A)) ≍
+      fun args => interp args
+        (RawPExpr.toPExprElab (ctxS ctx)
+          (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k]))) A') := by
+    exact hA_to_elab.symm.trans (hcorrA.trans hA'_to_elab)
+  have hB_to_elab := interp_toPExpr_heq_toPExprElab
+    (ctxRaw := ctx) (e := B) (ty := PType.ofBase (LinalgBaseType.tensor [k, n]))
+    (inferType_isSome_of_hasType hB)
+  have hB'_to_elab := interp_toPExpr_heq_toPExprElab
+    (ctxRaw := ctxS ctx) (e := B')
+    (ty := T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))
+    (inferType_isSome_of_hasType hB')
+  have hcorrB_elab :
+      (fun args => interp args
+        (RawPExpr.toPExprElab ctx (PType.ofBase (LinalgBaseType.tensor [k, n])) B)) ≍
+      fun args => interp args
+        (RawPExpr.toPExprElab (ctxS ctx)
+          (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n]))) B') := by
+    exact hB_to_elab.symm.trans (hcorrB.trans hB'_to_elab)
+  have hReluMatmulRaw : HasType ctx (reluMatmulRaw m n k) (reluMatmulTy m n k) := by
+    exact reluMatmulRaw_hasType (ctx := ctx) (m := m) (n := n) (k := k)
+  letI := hReluMatmulRaw
+  have hMatmulReluSCF : HasType (ctxS ctx) (matmulReluSCF m n k) (matmulReluSCFTy m n k) := by
+    apply HasType.mk
+    interpvc [matmulReluSCFTy, matmulReluSCF, T.toS,
+      LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
+  letI := hMatmulReluSCF
+  have hIn_to_partial := interp_toPExpr_heq_generatedApp2
+    (ctxRaw := ctx)
+    (arg₁ := PType.ofBase (LinalgBaseType.tensor [m, k]))
+    (arg₂ := PType.ofBase (LinalgBaseType.tensor [k, n]))
+    (out := PType.ofBase (LinalgBaseType.tensor [m, n]))
+    (fRaw := reluMatmulRaw m n k) (a := A) (b := B)
+    hA hB
+    (reluMatmulRaw_generatedPartial_isSome (ctx := ctx) (m := m) (n := n) (k := k))
+    (toPExprElab_reluMatmulRaw_eq_generatedPartial (ctx := ctx) (m := m) (n := n) (k := k))
+    (reluMatmulRawApp_isSome hA hB)
+  have hOut_to_partial := interp_toPExpr_heq_generatedApp2
+    (ctxRaw := ctxS ctx)
+    (arg₁ := T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))
+    (arg₂ := T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))
+    (out := T.toS (PType.ofBase (LinalgBaseType.tensor [m, n])))
+    (fRaw := matmulReluSCF m n k) (a := A') (b := B')
+    hA' hB'
+    (matmulReluSCF_generatedPartial_isSome (ctx := ctxS ctx) (m := m) (n := n) (k := k))
+    (toPExprElab_matmulReluSCF_eq_generatedPartial (ctx := ctxS ctx) (m := m) (n := n) (k := k))
+    (matmulReluSCFApp_isSome hA' hB')
+  exact hIn_to_partial.trans
+    ((lowerRaw_reluMatmul_correct_partial hA hB hA' hB' hcorrA_elab hcorrB_elab).trans
+      hOut_to_partial.symm)
 /-
   todo :: make a general purpose lowering functions that takes in a Const.lower along with a `preprocess : RawPExpr → (k : RawPExpr → RawPExpr) → Option RawPExpr`
   (use the continutation passing recursor pattern) function

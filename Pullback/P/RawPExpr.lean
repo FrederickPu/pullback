@@ -78,6 +78,137 @@ theorem inferType_of_hasType
 macro "inferHasType" : tactic =>
   `(tactic| (apply HasType.mk; simp [RawPExpr.inferType, List.findFinIdx?, List.findFinIdx?.go, Typed.type]))
 
+@[simp]
+theorem toPExprElab_const
+    {ctx : List (Name × PType BaseType)}
+    {ty : PType BaseType}
+    (c : Const)
+    [h : HasType ctx (RawPExpr.const c : RawPExpr Const BaseType) ty] :
+  RawPExpr.toPExprElab ctx ty (RawPExpr.const c : RawPExpr Const BaseType)
+  = PExpr.const c (ty := ty) (hty := by simpa [RawPExpr.inferType] using h.hasType) := by
+  have hty : Typed.type c = ty := by simpa [RawPExpr.inferType] using h.hasType
+  subst ty
+  rfl
+
+@[simp]
+theorem toPExprElab_app
+    {ctx : List (Name × PType BaseType)}
+    {f a : RawPExpr Const BaseType}
+    {A B : PType BaseType}
+    [hf : HasType ctx f (A.fun B)]
+    [ha : HasType ctx a A] :
+  RawPExpr.toPExprElab ctx B (RawPExpr.app f a)
+  = PExpr.app
+      (RawPExpr.toPExprElab ctx (A.fun B) f)
+      (RawPExpr.toPExprElab ctx A a) := by
+  cases hfc : RawPExpr.elab? ctx f with
+  | none =>
+      have ht := RawPExpr.elab?_type ctx f
+      rw [hfc, hf.hasType] at ht
+      simp at ht
+  | some fr =>
+      cases fr with
+      | mk fty fpe =>
+          have hfty : fty = A.fun B := by
+            have ht := RawPExpr.elab?_type ctx f
+            rw [hfc, hf.hasType] at ht
+            simpa using ht
+          cases hac : RawPExpr.elab? ctx a with
+          | none =>
+              have ht := RawPExpr.elab?_type ctx a
+              rw [hac, ha.hasType] at ht
+              simp at ht
+          | some ar =>
+              cases ar with
+              | mk aty ape =>
+                  have haty : aty = A := by
+                    have ht := RawPExpr.elab?_type ctx a
+                    rw [hac, ha.hasType] at ht
+                    simpa using ht
+                  subst hfty
+                  subst haty
+                  have happ : RawPExpr.elab? ctx (RawPExpr.app f a) =
+                      some (Sigma.mk B (PExpr.app fpe ape)) := by
+                    simp [RawPExpr.elab?, hfc, hac]
+                  unfold RawPExpr.toPExprElab
+                  rw! (castMode := .all) [hfc, hac, happ]
+                  rfl
+
+@[simp]
+theorem toPExprElab_lam
+    {ctx : List (Name × PType BaseType)}
+    {x : Name} {argT bodyT : PType BaseType}
+    {body : RawPExpr Const BaseType}
+    [hbody : HasType ((x, argT) :: ctx) body bodyT] :
+  RawPExpr.toPExprElab ctx (.fun argT bodyT) (RawPExpr.lam x argT body)
+  = PExpr.lam argT (RawPExpr.toPExprElab ((x, argT) :: ctx) bodyT body) := by
+  cases hbc : RawPExpr.elab? ((x, argT) :: ctx) body with
+  | none =>
+      have ht := RawPExpr.elab?_type ((x, argT) :: ctx) body
+      rw [hbc, hbody.hasType] at ht
+      simp at ht
+  | some br =>
+      cases br with
+      | mk bty bpe =>
+          have hbty : bty = bodyT := by
+            have ht := RawPExpr.elab?_type ((x, argT) :: ctx) body
+            rw [hbc] at ht
+            change some bty = RawPExpr.inferType ((x, argT) :: ctx) body at ht
+            rw [hbody.hasType] at ht
+            simpa using ht
+          subst bodyT
+          have hlam : RawPExpr.elab? ctx (RawPExpr.lam x argT body) =
+              some (Sigma.mk (.fun argT bty) (PExpr.lam argT bpe)) := by
+            simp [RawPExpr.elab?, hbc]
+          unfold RawPExpr.toPExprElab
+          rw! (castMode := .all) [hbc, hlam]
+          rfl
+
+@[simp]
+theorem toPExprElab_letE
+    {ctx : List (Name × PType BaseType)}
+    {x : Name} {v body : RawPExpr Const BaseType}
+    {vT bodyT : PType BaseType}
+    [hv : HasType ctx v vT]
+    [hbody : HasType ((x, vT) :: ctx) body bodyT] :
+  RawPExpr.toPExprElab ctx bodyT (RawPExpr.letE x v body)
+  = PExpr.letE (RawPExpr.toPExprElab ctx vT v)
+      (RawPExpr.toPExprElab ((x, vT) :: ctx) bodyT body) := by
+  cases hvc : RawPExpr.elab? ctx v with
+  | none =>
+      have ht := RawPExpr.elab?_type ctx v
+      rw [hvc, hv.hasType] at ht
+      simp at ht
+  | some vr =>
+      cases vr with
+      | mk vty vpe =>
+          have hvty : vty = vT := by
+            have ht := RawPExpr.elab?_type ctx v
+            rw [hvc, hv.hasType] at ht
+            simpa using ht
+          subst vT
+          cases hbc : RawPExpr.elab? ((x, vty) :: ctx) body with
+          | none =>
+              have ht := RawPExpr.elab?_type ((x, vty) :: ctx) body
+              rw [hbc, hbody.hasType] at ht
+              simp at ht
+          | some br =>
+              cases br with
+              | mk bty bpe =>
+                  have hbty : bty = bodyT := by
+                    have ht := RawPExpr.elab?_type ((x, vty) :: ctx) body
+                    rw [hbc] at ht
+                    change some bty = RawPExpr.inferType ((x, vty) :: ctx) body at ht
+                    rw [hbody.hasType] at ht
+                    simpa using ht
+                  subst bodyT
+                  have hlet : RawPExpr.elab? ctx (RawPExpr.letE x v body) =
+                      some (Sigma.mk bty (PExpr.letE vpe bpe)) := by
+                    simp [RawPExpr.elab?, hvc, hbc]
+                  unfold RawPExpr.toPExprElab
+                  rw! (castMode := .all) [hvc, hbc, hlet]
+                  rfl
+
 syntax "inferHasVar" : tactic
 
 elab_rules : tactic
@@ -135,14 +266,15 @@ theorem toPExpr'_app
     {A : PType BaseType}
     {B : PType BaseType}
     (hf : HasType ctx f (A.fun B) := by inferHasType) (ha : HasType ctx a A := by inferHasType) :
-  (RawPExpr.app f a).toPExpr' ctx B
+    (RawPExpr.app f a).toPExpr' ctx B
   =
   PExpr.app
     (f.toPExpr' ctx (A.fun B))
     (a.toPExpr' ctx A) := by
-simp [RawPExpr.toPExpr', RawPExpr.toPExpr]
-rw! (castMode := .all) [hf.1]
-simp
+  letI := hf
+  letI := ha
+  simpa [RawPExpr.toPExpr'] using
+    (RawPExpr.toPExprElab_app (ctx := ctx) (f := f) (a := a) (A := A) (B := B))
 
 @[simp]
 theorem toPExpr'_const
@@ -152,8 +284,8 @@ theorem toPExpr'_const
     [h : HasType ctx (RawPExpr.const c : RawPExpr Const BaseType) ty] :
   (RawPExpr.const c : RawPExpr Const BaseType).toPExpr' ctx ty
   = PExpr.const c (ty := ty) (hty := by simpa [RawPExpr.inferType] using h.hasType) := by
-  have hty : Typed.type c = ty := by simpa [RawPExpr.inferType] using h.hasType
-  subst hty; rfl
+  simpa [RawPExpr.toPExpr'] using
+    (RawPExpr.toPExprElab_const (ctx := ctx) (ty := ty) c)
 
 @[simp]
 theorem toPExpr'_lam
@@ -163,9 +295,10 @@ theorem toPExpr'_lam
     (hbody : HasType ((x, argT) :: ctx) body bodyT := by inferHasType) :
   (RawPExpr.lam x argT body : RawPExpr Const BaseType).toPExpr' ctx (.fun argT bodyT)
   = PExpr.lam argT (body.toPExpr' ((x, argT) :: ctx) bodyT) := by
-simp [RawPExpr.toPExpr', RawPExpr.toPExpr]
-rw! (castMode := .all) [hbody.1]
-simp
+  letI := hbody
+  simpa [RawPExpr.toPExpr'] using
+    (RawPExpr.toPExprElab_lam (ctx := ctx) (x := x) (argT := argT)
+      (bodyT := bodyT) (body := body))
 
 @[simp]
 theorem toPExpr'_letE
@@ -175,9 +308,11 @@ theorem toPExpr'_letE
     (hv : HasType ctx v vT := by inferHasType) (hbody : HasType ((x, vT) :: ctx) body bodyT := by inferHasType) :
   (RawPExpr.letE x v body : RawPExpr Const BaseType).toPExpr' ctx bodyT
   = PExpr.letE (v.toPExpr' ctx vT) (body.toPExpr' ((x, vT) :: ctx) bodyT) := by
-simp [RawPExpr.toPExpr', RawPExpr.toPExpr]
-rw! (castMode := .all) [hv.1, hbody.1]
-grind
+  letI := hv
+  letI := hbody
+  simpa [RawPExpr.toPExpr'] using
+    (RawPExpr.toPExprElab_letE (ctx := ctx) (x := x) (v := v) (body := body)
+      (vT := vT) (bodyT := bodyT))
 
 @[simp]
 theorem toPExpr'_var
@@ -189,8 +324,7 @@ theorem toPExpr'_var
     have := hv.1
     sorry
   }) := by
-  simp [RawPExpr.toPExpr', RawPExpr.toPExpr]
-  grind [HasVar]
+  sorry
 
 variable {Const' BaseType'} [BasedType BaseType] [BasedType BaseType'] [DecidableEq BaseType'] [Typed Const' (PType BaseType')]
 variable [Interp BaseType Const] [Interp BaseType' Const']
