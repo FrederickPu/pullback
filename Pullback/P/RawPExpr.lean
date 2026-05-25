@@ -326,6 +326,38 @@ theorem toPExpr'_var
   }) := by
   sorry
 
+theorem interp_toPExpr_heq_toPExprElab
+    {Const BaseType : Type} [BasedType BaseType] [Typed Const (PType BaseType)]
+    [DecidableEq BaseType] [Interp BaseType Const]
+    {ctxRaw : List (Name × PType BaseType)} {e : RawPExpr Const BaseType}
+    {ty : PType BaseType} [h : HasType ctxRaw e ty]
+    (he : (RawPExpr.inferType ctxRaw e).isSome) :
+    (fun args => PExpr.interp args (RawPExpr.toPExpr ctxRaw e he)) ≍
+    fun args => PExpr.interp args (RawPExpr.toPExprElab ctxRaw ty e) := by
+  have hget : (RawPExpr.inferType ctxRaw e).get he = ty := by
+    generalize hopt : RawPExpr.inferType ctxRaw e = opt at he ⊢
+    cases opt with
+    | none => simp at he
+    | some ty' =>
+        have hty' : ty' = ty := by
+          have hoptTy : some ty' = some ty := hopt ▸ h.hasType
+          exact Option.some.inj hoptTy
+        simp [hty']
+  cases hget
+  apply Function.hfunext
+  · rfl
+  · intro args args' hargs
+    have hargs_eq : args = args' := by
+      rw [← heq_iff_eq]
+      exact hargs
+    subst args'
+    rw [heq_iff_eq]
+    have hpe : RawPExpr.toPExpr ctxRaw e he =
+        RawPExpr.toPExprElab ctxRaw ((RawPExpr.inferType ctxRaw e).get he) e := by
+      rw [← heq_iff_eq]
+      exact RawPExpr.toPExpr_heq_toPExprElab (ctxRaw := ctxRaw) (e := e) he
+    rw [hpe]
+
 variable {Const' BaseType'} [BasedType BaseType] [BasedType BaseType'] [DecidableEq BaseType'] [Typed Const' (PType BaseType')]
 variable [Interp BaseType Const] [Interp BaseType' Const']
 

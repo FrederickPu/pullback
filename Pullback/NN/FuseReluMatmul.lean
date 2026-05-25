@@ -498,38 +498,6 @@ private theorem matmulReluSCFApp_isSome
       (((matmulReluSCF m n k).app A').app B')
       (T.toS (PType.ofBase (LinalgBaseType.tensor [m, n]))))
 
-private theorem interp_toPExpr_heq_toPExprElab
-    {Const BaseType : Type} [BasedType BaseType] [Typed Const (PType BaseType)]
-    [DecidableEq BaseType] [Interp BaseType Const]
-    {ctxRaw : List (Name × PType BaseType)} {e : RawPExpr Const BaseType}
-    {ty : PType BaseType} [h : HasType ctxRaw e ty]
-    (he : (RawPExpr.inferType ctxRaw e).isSome) :
-    (fun args => interp args (RawPExpr.toPExpr ctxRaw e he)) ≍
-    fun args => interp args (RawPExpr.toPExprElab ctxRaw ty e) := by
-  have hget : (RawPExpr.inferType ctxRaw e).get he = ty := by
-    generalize hopt : RawPExpr.inferType ctxRaw e = opt at he ⊢
-    cases opt with
-    | none => simp at he
-    | some ty' =>
-        have hty' : ty' = ty := by
-          have hoptTy : some ty' = some ty := hopt ▸ h.hasType
-          exact Option.some.inj hoptTy
-        simp [hty']
-  cases hget
-  apply Function.hfunext
-  · rfl
-  · intro args args' hargs
-    have hargs_eq : args = args' := by
-      rw [← heq_iff_eq]
-      exact hargs
-    subst args'
-    rw [heq_iff_eq]
-    have hpe : RawPExpr.toPExpr ctxRaw e he =
-        RawPExpr.toPExprElab ctxRaw ((RawPExpr.inferType ctxRaw e).get he) e := by
-      rw [← heq_iff_eq]
-      exact RawPExpr.toPExpr_heq_toPExprElab (ctxRaw := ctxRaw) (e := e) he
-    rw [hpe]
-
 private theorem interp_toPExpr_heq_generatedApp2
     {Const BaseType : Type} [BasedType BaseType] [Typed Const (PType BaseType)]
     [DecidableEq BaseType] [Interp BaseType Const]
@@ -551,7 +519,7 @@ private theorem interp_toPExpr_heq_generatedApp2
   letI := hb
   have hfa : HasType ctxRaw (fRaw.app a) (arg₂.fun out) := inferInstance
   letI := hfa
-  have hRaw := interp_toPExpr_heq_toPExprElab
+  have hRaw := RawPExpr.interp_toPExpr_heq_toPExprElab
     (ctxRaw := ctxRaw) (e := (fRaw.app a).app b) (ty := out) he
   have hElab :
       RawPExpr.toPExprElab ctxRaw out ((fRaw.app a).app b) =
@@ -600,10 +568,10 @@ theorem lowerRaw_reluMatmul_correct
   letI := hB
   letI := hA'
   letI := hB'
-  have hA_to_elab := interp_toPExpr_heq_toPExprElab
+  have hA_to_elab := RawPExpr.interp_toPExpr_heq_toPExprElab
     (ctxRaw := ctx) (e := A) (ty := PType.ofBase (LinalgBaseType.tensor [m, k]))
     (inferType_isSome_of_hasType hA)
-  have hA'_to_elab := interp_toPExpr_heq_toPExprElab
+  have hA'_to_elab := RawPExpr.interp_toPExpr_heq_toPExprElab
     (ctxRaw := ctxS ctx) (e := A')
     (ty := T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))
     (inferType_isSome_of_hasType hA')
@@ -614,10 +582,10 @@ theorem lowerRaw_reluMatmul_correct
         (RawPExpr.toPExprElab (ctxS ctx)
           (T.toS (PType.ofBase (LinalgBaseType.tensor [m, k]))) A') := by
     exact hA_to_elab.symm.trans (hcorrA.trans hA'_to_elab)
-  have hB_to_elab := interp_toPExpr_heq_toPExprElab
+  have hB_to_elab := RawPExpr.interp_toPExpr_heq_toPExprElab
     (ctxRaw := ctx) (e := B) (ty := PType.ofBase (LinalgBaseType.tensor [k, n]))
     (inferType_isSome_of_hasType hB)
-  have hB'_to_elab := interp_toPExpr_heq_toPExprElab
+  have hB'_to_elab := RawPExpr.interp_toPExpr_heq_toPExprElab
     (ctxRaw := ctxS ctx) (e := B')
     (ty := T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))
     (inferType_isSome_of_hasType hB')
