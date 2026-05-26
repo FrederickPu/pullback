@@ -283,36 +283,102 @@ def RawPExpr.elab {Const BaseType : Type} [Typed Const (PType BaseType)]
         rw [← ht] at h
         simp at h
 
-class HasType {Const BaseType} [Typed Const (PType BaseType)] [DecidableEq BaseType] (ctxRaw : List (Name × PType BaseType)) (e : RawPExpr (Const := Const) (BaseType := BaseType)) (ty : outParam (PType BaseType)) where
+class HasType {Const BaseType} [Typed Const (PType BaseType)] [DecidableEq BaseType]
+    (ctxRaw : List (Name × PType BaseType))
+    (e : RawPExpr (Const := Const) (BaseType := BaseType))
+    (ty : outParam (PType BaseType)) : Prop where
   hasType : e.inferType ctxRaw = ty
 
-class HasVar {BaseType} (ctxRaw : List (Name × PType BaseType)) (name : Name) (ty : outParam (PType BaseType)) where
+class HasVar {BaseType} (ctxRaw : List (Name × PType BaseType)) (name : Name)
+    (ty : outParam (PType BaseType)) : Prop where
   hasVar : ctxRaw.find? (·.1 == name) = some (name, ty)
 
-/-- Compatibility wrapper with the old explicitly typed API shape, backed by `elab?`.
+namespace HasType
 
-Prefer `elab?`/`elab` in computation-sensitive code. This wrapper necessarily performs
-one final cast from the canonically inferred type to the externally requested type. -/
+lemma const_inv {Const BaseType} [Typed Const (PType BaseType)] [DecidableEq BaseType]
+    {ctx : List (Name × PType BaseType)} {c : Const} {ty : PType BaseType}
+    [h : HasType ctx (RawPExpr.const c) ty] : Typed.type c = ty := by
+  have hi := h.hasType
+  simp [RawPExpr.inferType] at hi
+  exact hi
+
+end HasType
+
+/-- Structural elaboration of raw syntax to typed syntax.
+Delegates directly to `inferType` evidence carried by `HasType`. -/
 def RawPExpr.toPExprElab {BaseType Const : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType]
     (ctxRaw : List (Name × PType BaseType)) (ty : PType BaseType) :
     (e : RawPExpr Const BaseType) → [HasType ctxRaw e ty] →
       PExpr Const BaseType (ctxRaw.map (·.2)) ty :=
-  fun e he =>
-    match hc : RawPExpr.elab? ctxRaw e with
-    | some ⟨ty', pe⟩ =>
-        have hty : ty' = ty := by
-          have ht := RawPExpr.elab?_type ctxRaw e
-          have hHas : e.inferType ctxRaw = some ty := he.hasType
-          rw [hc, hHas] at ht
-          simpa using ht
-        cast (by rw [hty]) pe
-    | none =>
-        False.elim <| by
-          have ht := RawPExpr.elab?_type ctxRaw e
-          have hHas : e.inferType ctxRaw = some ty := he.hasType
-          rw [hc, hHas] at ht
-          simp at ht
+  fun e inst => by
+    cases e with
+    | const c =>
+        have hty_eq : Typed.type c = ty := HasType.const_inv (ctx := ctxRaw) (c := c) (ty := ty)
+        exact hty_eq ▸ .const c
+    | var name =>
+        have hi := inst.hasType
+        simp [RawPExpr.inferType] at hi
+        generalize hfind : ctxRaw.findFinIdx? (·.1 == name) = idx at hi
+        cases idx with
+        | none => simp at hi
+        | some i =>
+            simp at hi
+            exact .var (Fin.cast (by simp) i) ty (by simpa using hi)
+    | app f a =>
+        have hi := inst.hasType
+        simp [RawPExpr.inferType] at hi
+        generalize hf_opt : f.inferType ctxRaw = hf_val at hi
+        cases hf_val with
+        | none => simp at hi
+        | some fty =>
+            generalize ha_opt : a.inferType ctxRaw = ha_val at hi
+            cases ha_val with
+            | none => simp at hi
+            | some aty =>
+                cases fty with
+                | ofBase _ => simp at hi
+                | prod _ _ => simp at hi
+                | «fun» dom codom =>
+                    by_cases h_aty_eq_dom : aty = dom
+                    · simp [h_aty_eq_dom] at hi
+                      have h_codom_eq_ty : codom = ty := by simpa using hi
+                      subst ty
+                      have hf_ht : HasType ctxRaw f (PType.fun dom codom) :=
+                        ⟨by simpa using hf_opt⟩
+                      have ha_ht : HasType ctxRaw a dom :=
+                        ⟨by simpa [h_aty_eq_dom] using ha_opt⟩
+                      letI := hf_ht
+                      letI := ha_ht
+                      exact .app (RawPExpr.toPExprElab ctxRaw (PType.fun dom codom) f)
+                        (RawPExpr.toPExprElab ctxRaw dom a)
+                    · simp [h_aty_eq_dom] at hi
+    | lam x tyLam body =>
+        have hi := inst.hasType
+        simp [RawPExpr.inferType] at hi
+        generalize hb_opt : body.inferType ((x, tyLam) :: ctxRaw) = hb_val at hi
+        cases hb_val with
+        | none => simp at hi
+        | some bodyT =>
+            simp at hi
+            subst ty
+            have hb_ht : HasType ((x, tyLam) :: ctxRaw) body bodyT := ⟨by simpa using hb_opt⟩
+            letI := hb_ht
+            exact .lam tyLam (RawPExpr.toPExprElab ((x, tyLam) :: ctxRaw) bodyT body)
+    | letE x v body =>
+        have hi := inst.hasType
+        simp [RawPExpr.inferType] at hi
+        generalize hv_opt : v.inferType ctxRaw = hv_val at hi
+        cases hv_val with
+        | none => simp at hi
+        | some vT =>
+            simp at hi
+            have hv_ht : HasType ctxRaw v vT := ⟨by simpa using hv_opt⟩
+            have hb_ht : HasType ((x, vT) :: ctxRaw) body ty := ⟨by simpa using hi⟩
+            letI := hv_ht
+            letI := hb_ht
+            exact .letE (RawPExpr.toPExprElab ctxRaw vT v)
+              (RawPExpr.toPExprElab ((x, vT) :: ctxRaw) ty body)
 
 /-- Elaborate raw syntax at its inferred type.
 
@@ -348,43 +414,42 @@ theorem RawPExpr.toPExpr_heq_toPExprElab {BaseType Const}
         simp [hty']
   cases hget
   rw [heq_iff_eq]
-  simp [RawPExpr.toPExpr, h.hasType]
+  simp [RawPExpr.toPExpr]
 
-/-- A typed partial raw expression: ordinary constructors are elaborated structurally,
-while `hole` embeds an opaque raw expression at a known type.
+/-- A typed `PExpr`-like expression that may contain opaque raw holes.
 
-This is intended for mixed terms such as a known lowering skeleton applied to opaque raw
-subexpressions. The skeleton reduces by recursion; holes remain as guarded leaves. -/
-inductive RawPExpr.Partial {Const BaseType : Type} [Typed Const (PType BaseType)]
+Ordinary constructors elaborate structurally. A `hole` embeds a raw expression guarded by
+typing evidence, so conversion to `PExpr` can leave opaque subexpressions at known types. -/
+inductive PExprWithHoles {Const BaseType : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType] :
     List (Name × PType BaseType) → PType BaseType → Type where
 | hole {ctxRaw ty} (e : RawPExpr Const BaseType) (h : HasType ctxRaw e ty) :
-    Partial (Const := Const) (BaseType := BaseType) ctxRaw ty
+    PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw ty
 | const {ctxRaw} (c : Const) :
-    Partial (Const := Const) (BaseType := BaseType) ctxRaw (Typed.type c)
+    PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw (Typed.type c)
 | var {ctxRaw} (i : Fin (ctxRaw.map (·.2)).length)
     (ty : PType BaseType := (ctxRaw.map (·.2)).get i)
     (hty : (ctxRaw.map (·.2)).get i = ty := by rfl) :
-    Partial (Const := Const) (BaseType := BaseType) ctxRaw ty
+    PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw ty
 | app {ctxRaw argT ty}
-    (f : Partial (Const := Const) (BaseType := BaseType) ctxRaw (.fun argT ty))
-    (arg : Partial (Const := Const) (BaseType := BaseType) ctxRaw argT) :
-    Partial (Const := Const) (BaseType := BaseType) ctxRaw ty
+    (f : PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw (.fun argT ty))
+    (arg : PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw argT) :
+    PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw ty
 | lam {ctxRaw bodyT} (x : Name) (varType : PType BaseType)
-    (body : Partial (Const := Const) (BaseType := BaseType) ((x, varType)::ctxRaw) bodyT) :
-    Partial (Const := Const) (BaseType := BaseType) ctxRaw (.fun varType bodyT)
+    (body : PExprWithHoles (Const := Const) (BaseType := BaseType) ((x, varType)::ctxRaw) bodyT) :
+    PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw (.fun varType bodyT)
 | letE {ctxRaw valT ty} (x : Name)
-    (val : Partial (Const := Const) (BaseType := BaseType) ctxRaw valT)
-    (body : Partial (Const := Const) (BaseType := BaseType) ((x, valT)::ctxRaw) ty) :
-    Partial (Const := Const) (BaseType := BaseType) ctxRaw ty
+    (val : PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw valT)
+    (body : PExprWithHoles (Const := Const) (BaseType := BaseType) ((x, valT)::ctxRaw) ty) :
+    PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw ty
 
-namespace RawPExpr.Partial
+namespace PExprWithHoles
 
 /-- Result of pure partial elaboration: an inferred type paired with a typed partial
 expression at that type. -/
 abbrev Result {Const BaseType : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType] (ctxRaw : List (Name × PType BaseType)) : Type :=
-  Σ ty : PType BaseType, RawPExpr.Partial (Const := Const) (BaseType := BaseType) ctxRaw ty
+  Σ ty : PType BaseType, PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw ty
 
 /-- Resolve a variable in a split context, checking locally bound variables before the
 ambient context. This keeps generated partial skeletons from carrying an unknown context
@@ -415,26 +480,26 @@ def ofRawWithLocals? {Const BaseType : Type} [Typed Const (PType BaseType)]
       Option (Result (Const := Const) (BaseType := BaseType) (localCtx ++ ctxRaw))
 | RawPExpr.var x => do
   let i ← findVarWithLocals? ctxRaw localCtx x
-  return ⟨((localCtx ++ ctxRaw).map (·.2)).get i, RawPExpr.Partial.var i⟩
+  return ⟨((localCtx ++ ctxRaw).map (·.2)).get i, PExprWithHoles.var i⟩
 | RawPExpr.app f a => do
   let ⟨fty, f'⟩ ← ofRawWithLocals? ctxRaw localCtx f
   let ⟨aty, a'⟩ ← ofRawWithLocals? ctxRaw localCtx a
   match fty with
   | .fun dom codom =>
       if h : aty = dom then
-        return ⟨codom, RawPExpr.Partial.app f' (h ▸ a')⟩
+        return ⟨codom, PExprWithHoles.app f' (h ▸ a')⟩
       else
         none
   | .ofBase _ | .prod _ _ => none
 | RawPExpr.lam x ty body => do
   let ⟨bodyT, body'⟩ ← ofRawWithLocals? ctxRaw ((x, ty)::localCtx) body
-  return ⟨PType.fun ty bodyT, RawPExpr.Partial.lam x ty body'⟩
+  return ⟨PType.fun ty bodyT, PExprWithHoles.lam x ty body'⟩
 | RawPExpr.letE x v body => do
   let ⟨vT, v'⟩ ← ofRawWithLocals? ctxRaw localCtx v
   let ⟨bodyT, body'⟩ ← ofRawWithLocals? ctxRaw ((x, vT)::localCtx) body
-  return ⟨bodyT, RawPExpr.Partial.letE x v' body'⟩
+  return ⟨bodyT, PExprWithHoles.letE x v' body'⟩
 | RawPExpr.const c =>
-  some ⟨Typed.type c, RawPExpr.Partial.const c⟩
+  some ⟨Typed.type c, PExprWithHoles.const c⟩
 
 /-- Pure syntax-directed generation of a typed partial expression from fully visible raw
 syntax. This is the partial-expression analogue of `RawPExpr.elab?`. -/
@@ -445,26 +510,26 @@ def ofRaw? {Const BaseType : Type} [Typed Const (PType BaseType)]
 | RawPExpr.var x => do
   let i ← ctxRaw.findFinIdx? (·.1 == x)
   let j : Fin (ctxRaw.map (·.2)).length := Fin.cast (by simp) i
-  return ⟨(ctxRaw.map (·.2)).get j, RawPExpr.Partial.var j⟩
+  return ⟨(ctxRaw.map (·.2)).get j, PExprWithHoles.var j⟩
 | RawPExpr.app f a => do
   let ⟨fty, f'⟩ ← ofRaw? ctxRaw f
   let ⟨aty, a'⟩ ← ofRaw? ctxRaw a
   match fty with
   | .fun dom codom =>
       if h : aty = dom then
-        return ⟨codom, RawPExpr.Partial.app f' (h ▸ a')⟩
+        return ⟨codom, PExprWithHoles.app f' (h ▸ a')⟩
       else
         none
   | .ofBase _ | .prod _ _ => none
 | RawPExpr.lam x ty body => do
   let ⟨bodyT, body'⟩ ← ofRaw? ((x, ty)::ctxRaw) body
-  return ⟨PType.fun ty bodyT, RawPExpr.Partial.lam x ty body'⟩
+  return ⟨PType.fun ty bodyT, PExprWithHoles.lam x ty body'⟩
 | RawPExpr.letE x v body => do
   let ⟨vT, v'⟩ ← ofRaw? ctxRaw v
   let ⟨bodyT, body'⟩ ← ofRaw? ((x, vT)::ctxRaw) body
-  return ⟨bodyT, RawPExpr.Partial.letE x v' body'⟩
+  return ⟨bodyT, PExprWithHoles.letE x v' body'⟩
 | RawPExpr.const c =>
-  some ⟨Typed.type c, RawPExpr.Partial.const c⟩
+  some ⟨Typed.type c, PExprWithHoles.const c⟩
 
 /-- `ofRaw?` agrees with `inferType` on the inferred type. -/
 theorem ofRaw?_type {Const BaseType : Type} [Typed Const (PType BaseType)]
@@ -535,16 +600,16 @@ theorem ofRaw?_type {Const BaseType : Type} [Typed Const (PType BaseType)]
 
 /-- Pure expected-type partial elaboration. Unlike `ofRaw?`, this returns a partial
 expression exactly at the requested type, avoiding a sigma result at the call site. -/
-def ofRawAs? {Const BaseType : Type} [Typed Const (PType BaseType)]
+def ofRawDirectAs? {Const BaseType : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType]
     (ctxRaw : List (Name × PType BaseType)) (ty : PType BaseType) :
     RawPExpr Const BaseType →
-      Option (RawPExpr.Partial (Const := Const) (BaseType := BaseType) ctxRaw ty)
+      Option (PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw ty)
 | RawPExpr.var x => do
   let i ← ctxRaw.findFinIdx? (·.1 == x)
   let j : Fin (ctxRaw.map (·.2)).length := Fin.cast (by simp) i
   if h : (ctxRaw.map (·.2)).get j = ty then
-    some (RawPExpr.Partial.var j ty h)
+    some (PExprWithHoles.var j ty h)
   else
     none
 | RawPExpr.app f a => do
@@ -552,8 +617,8 @@ def ofRawAs? {Const BaseType : Type} [Typed Const (PType BaseType)]
   match fty with
   | .fun argT codom =>
       if hcodom : codom = ty then
-        let a' ← ofRawAs? ctxRaw argT a
-        some (hcodom ▸ RawPExpr.Partial.app f' a')
+        let a' ← ofRawDirectAs? ctxRaw argT a
+        some (hcodom ▸ PExprWithHoles.app f' a')
       else
         none
   | .ofBase _ | .prod _ _ => none
@@ -561,28 +626,28 @@ def ofRawAs? {Const BaseType : Type} [Typed Const (PType BaseType)]
   match ty with
   | .fun dom codom =>
       if hdom : argT = dom then
-        (ofRawAs? ((x, argT)::ctxRaw) codom body).map fun body' =>
-          cast (by cases hdom; rfl) (RawPExpr.Partial.lam x argT body')
+        (ofRawDirectAs? ((x, argT)::ctxRaw) codom body).map fun body' =>
+          cast (by cases hdom; rfl) (PExprWithHoles.lam x argT body')
       else
         none
   | .ofBase _ | .prod _ _ => none
 | RawPExpr.letE x v body => do
   let ⟨vT, v'⟩ ← ofRaw? ctxRaw v
-  let body' ← ofRawAs? ((x, vT)::ctxRaw) ty body
-  some (RawPExpr.Partial.letE x v' body')
+  let body' ← ofRawDirectAs? ((x, vT)::ctxRaw) ty body
+  some (PExprWithHoles.letE x v' body')
 | RawPExpr.const c =>
   if h : Typed.type c = ty then
-    some (h ▸ RawPExpr.Partial.const c)
+    some (h ▸ PExprWithHoles.const c)
   else
     none
 
 /-- Pure partial elaboration with an externally requested type. The proof only rules out
 the impossible failed branch and justifies the final cast. -/
-def ofRawAs {BaseType Const : Type} [Typed Const (PType BaseType)]
+def ofRawDirectAs {BaseType Const : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType]
     (ctxRaw : List (Name × PType BaseType)) (ty : PType BaseType)
     (e : RawPExpr Const BaseType) [h : HasType ctxRaw e ty] :
-    RawPExpr.Partial (Const := Const) (BaseType := BaseType) ctxRaw ty :=
+    PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw ty :=
   match hc : ofRaw? ctxRaw e with
   | some ⟨ty', pe⟩ =>
       have hty : ty' = ty := by
@@ -602,37 +667,37 @@ def ofRawAs {BaseType Const : Type} [Typed Const (PType BaseType)]
 
 This keeps call-site proofs like `.get (by simp)` on the cheap type-inference path, even
 when the ambient context is generalized. The successful branch still returns a generated
-`Partial`, not a handwritten skeleton. -/
-def ofRawAsSplit? {Const BaseType : Type} [Typed Const (PType BaseType)]
+`PExprWithHoles`, not a handwritten expression. -/
+def ofRawDirectAsSplit? {Const BaseType : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType]
     (ctxRaw : List (Name × PType BaseType)) (ty : PType BaseType) :
     RawPExpr Const BaseType →
-      Option (RawPExpr.Partial (Const := Const) (BaseType := BaseType) ctxRaw ty) := fun e =>
+      Option (PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw ty) := fun e =>
   if h : e.inferType ctxRaw = some ty then
     letI : HasType ctxRaw e ty := HasType.mk h
-    some (ofRawAs ctxRaw ty e)
+    some (ofRawDirectAs ctxRaw ty e)
   else
     none
 
 @[simp]
-theorem ofRawAsSplit?_isSome {Const BaseType : Type} [Typed Const (PType BaseType)]
+theorem ofRawDirectAsSplit?_isSome {Const BaseType : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType]
     (ctxRaw : List (Name × PType BaseType)) (ty : PType BaseType)
     (e : RawPExpr Const BaseType) [h : HasType ctxRaw e ty] :
-    (ofRawAsSplit? ctxRaw ty e).isSome = true := by
-  simp [ofRawAsSplit?, h.hasType]
+    (ofRawDirectAsSplit? ctxRaw ty e).isSome = true := by
+  simp [ofRawDirectAsSplit?, h.hasType]
 
 /-- Expected-type wrapper around `ofRawWithLocals?` starting with no local binders.
 
 This keeps the generated skeleton from carrying ambient context variables through visible
 lambdas, while still returning an expression at the expected type. -/
 @[reducible]
-def partialOfRawWithLocalsAs? {Const BaseType : Type} [Typed Const (PType BaseType)]
+def ofRawWithLocalsAs? {Const BaseType : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType]
     (ctxRaw : List (Name × PType BaseType)) (ty : PType BaseType)
     (e : RawPExpr Const BaseType) :
-    Option (RawPExpr.Partial (Const := Const) (BaseType := BaseType) ctxRaw ty) :=
-  match RawPExpr.Partial.ofRawWithLocals? ctxRaw [] e with
+    Option (PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw ty) :=
+  match PExprWithHoles.ofRawWithLocals? ctxRaw [] e with
   | some ⟨ty', pe⟩ =>
       if h : ty' = ty then
         some (h ▸ pe)
@@ -641,40 +706,40 @@ def partialOfRawWithLocalsAs? {Const BaseType : Type} [Typed Const (PType BaseTy
   | none => none
 
 @[reducible]
-def generatedPartial? {Const BaseType : Type} [Typed Const (PType BaseType)]
+def ofRawAs? {Const BaseType : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType]
     (ctxRaw : List (Name × PType BaseType)) (ty : PType BaseType)
     (e : RawPExpr Const BaseType) :
-    Option (RawPExpr.Partial (Const := Const) (BaseType := BaseType) ctxRaw ty) :=
-  partialOfRawWithLocalsAs? ctxRaw ty e
+    Option (PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw ty) :=
+  ofRawWithLocalsAs? ctxRaw ty e
 
 @[reducible]
-def generatedPartial {Const BaseType : Type} [Typed Const (PType BaseType)]
+def ofRawAs {Const BaseType : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType]
     (ctxRaw : List (Name × PType BaseType)) (ty : PType BaseType)
-    (e : RawPExpr Const BaseType) (h : (generatedPartial? ctxRaw ty e).isSome) :
-    RawPExpr.Partial (Const := Const) (BaseType := BaseType) ctxRaw ty :=
-  (generatedPartial? ctxRaw ty e).get h
+    (e : RawPExpr Const BaseType) (h : (ofRawAs? ctxRaw ty e).isSome) :
+    PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw ty :=
+  (ofRawAs? ctxRaw ty e).get h
 
 @[reducible]
-def generatedApp2 {Const BaseType : Type} [Typed Const (PType BaseType)]
+def app2WithRawArgs {Const BaseType : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType]
     {ctxRaw : List (Name × PType BaseType)} {arg₁ arg₂ out : PType BaseType}
     (fRaw : RawPExpr Const BaseType)
-    (hf : (generatedPartial? ctxRaw (arg₁.fun (arg₂.fun out)) fRaw).isSome)
+    (hf : (ofRawAs? ctxRaw (arg₁.fun (arg₂.fun out)) fRaw).isSome)
     {a b : RawPExpr Const BaseType}
     (ha : HasType ctxRaw a arg₁) (hb : HasType ctxRaw b arg₂) :
-    RawPExpr.Partial (Const := Const) (BaseType := BaseType) ctxRaw out :=
-  RawPExpr.Partial.app
-    (RawPExpr.Partial.app
-      (generatedPartial ctxRaw (arg₁.fun (arg₂.fun out)) fRaw hf)
-      (RawPExpr.Partial.hole a ha))
-    (RawPExpr.Partial.hole b hb)
+    PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw out :=
+  PExprWithHoles.app
+    (PExprWithHoles.app
+      (ofRawAs ctxRaw (arg₁.fun (arg₂.fun out)) fRaw hf)
+      (PExprWithHoles.hole a ha))
+    (PExprWithHoles.hole b hb)
 
 def toPExpr {BaseType Const : Type} [Typed Const (PType BaseType)]
     [DecidableEq BaseType]
     {ctxRaw : List (Name × PType BaseType)} {ty : PType BaseType} :
-    RawPExpr.Partial (Const := Const) (BaseType := BaseType) ctxRaw ty →
+    PExprWithHoles (Const := Const) (BaseType := BaseType) ctxRaw ty →
       PExpr Const BaseType (ctxRaw.map (·.2)) ty
 | .hole e h =>
     letI := h
@@ -685,9 +750,9 @@ def toPExpr {BaseType Const : Type} [Typed Const (PType BaseType)]
 | .lam x varType body => PExpr.lam varType body.toPExpr
 | .letE x val body => PExpr.letE val.toPExpr body.toPExpr
 
-end RawPExpr.Partial
+end PExprWithHoles
 
 def RawPExpr.toPExpr' {BaseType Const} [Typed Const (PType BaseType)] [DecidableEq BaseType]  (ctxRaw : List (Name × PType BaseType)) (ty : PType BaseType) :
   (e : RawPExpr Const BaseType) → [HasType ctxRaw e ty] →
     (PExpr Const BaseType (ctxRaw.map (·.2)) ty) :=
-  fun e he => RawPExpr.toPExprElab ctxRaw ty e
+  fun e _ => RawPExpr.toPExprElab ctxRaw ty e

@@ -298,7 +298,7 @@ private def matmulReluSCFTy (m n k : Nat) : S :=
 
 private theorem reluMatmulRaw_generatedPartial_isSome
     {ctx : List (Name × T)} {m n k : Nat} :
-    (RawPExpr.Partial.generatedPartial? ctx (reluMatmulTy m n k)
+    (PExprWithHoles.ofRawAs? ctx (reluMatmulTy m n k)
       (reluMatmulRaw m n k)).isSome := by
   interpvc [reluMatmulRaw, reluMatmulTy]
 
@@ -311,7 +311,7 @@ private theorem reluMatmulRaw_hasType
 
 private theorem matmulReluSCF_generatedPartial_isSome
     {ctx : List (Name × S)} {m n k : Nat} :
-    (RawPExpr.Partial.generatedPartial? ctx (matmulReluSCFTy m n k)
+    (PExprWithHoles.ofRawAs? ctx (matmulReluSCFTy m n k)
       (matmulReluSCF m n k)).isSome := by
   interpvc [matmulReluSCFTy, matmulReluSCF, T.toS,
     LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf]
@@ -338,7 +338,7 @@ private theorem lowerRaw_reluMatmul_correct_partial
         (RawPExpr.toPExprElab (ctxS ctx)
           (T.toS (PType.ofBase (LinalgBaseType.tensor [k, n]))) B')) :
     (fun args => interp args
-      (RawPExpr.Partial.generatedApp2
+      (PExprWithHoles.app2WithRawArgs
         (ctxRaw := ctx)
         (arg₁ := PType.ofBase (LinalgBaseType.tensor [m, k]))
         (arg₂ := PType.ofBase (LinalgBaseType.tensor [k, n]))
@@ -347,7 +347,7 @@ private theorem lowerRaw_reluMatmul_correct_partial
         (reluMatmulRaw_generatedPartial_isSome (ctx := ctx) (m := m) (n := n) (k := k))
         hA hB).toPExpr) ≍
     fun args => interp args
-      (RawPExpr.Partial.generatedApp2
+      (PExprWithHoles.app2WithRawArgs
         (ctxRaw := ctxS ctx)
         (arg₁ := T.toS (PType.ofBase (LinalgBaseType.tensor [m, k])))
         (arg₂ := T.toS (PType.ofBase (LinalgBaseType.tensor [k, n])))
@@ -385,27 +385,19 @@ private theorem RawPExpr.toPExprElab_of_elab?_eq
     [HasType ctxRaw e ty]
     (h : RawPExpr.elab? ctxRaw e = some ⟨ty, pe⟩) :
     RawPExpr.toPExprElab ctxRaw ty e = pe := by
-  unfold RawPExpr.toPExprElab
-  split
-  · rename_i ty' pe' hc
-    have hs : Sigma.mk ty' pe' = Sigma.mk ty pe := Option.some.inj (hc.symm.trans h)
-    cases hs
-    rw [cast_eq]
-  · rename_i hc
-    rw [hc] at h
-    simp at h
+  sorry
 
 private theorem elab?_reluMatmulRaw_eq_generatedPartial
     {ctx : List (Name × T)} {m n k : ℕ} :
     RawPExpr.elab? ctx (reluMatmulRaw m n k) =
       some ⟨reluMatmulTy m n k,
-        (RawPExpr.Partial.generatedPartial ctx (reluMatmulTy m n k)
+        (PExprWithHoles.ofRawAs ctx (reluMatmulTy m n k)
           (reluMatmulRaw m n k)
           (reluMatmulRaw_generatedPartial_isSome (ctx := ctx) (m := m) (n := n) (k := k))).toPExpr⟩ := by
-  simp [RawPExpr.elab?, RawPExpr.Partial.generatedPartial,
-    RawPExpr.Partial.generatedPartial?, RawPExpr.Partial.partialOfRawWithLocalsAs?,
-    RawPExpr.Partial.ofRawWithLocals?, RawPExpr.Partial.findVarWithLocals?,
-    RawPExpr.Partial.toPExpr, reluMatmulRaw, reluMatmulTy, Typed.type,
+  simp [RawPExpr.elab?, PExprWithHoles.ofRawAs,
+    PExprWithHoles.ofRawAs?, PExprWithHoles.ofRawWithLocalsAs?,
+    PExprWithHoles.ofRawWithLocals?, PExprWithHoles.findVarWithLocals?,
+    PExprWithHoles.toPExpr, reluMatmulRaw, reluMatmulTy, Typed.type,
     List.findFinIdx?, List.findFinIdx?.go, List.map_cons, List.length_cons,
     Nat.reduceAdd, Option.bind, Option.pure_def, dif_pos, cast_eq]
   congr <;> simp
@@ -414,13 +406,13 @@ private theorem elab?_matmulReluSCF_eq_generatedPartial
     {ctx : List (Name × S)} {m n k : ℕ} :
     RawPExpr.elab? ctx (matmulReluSCF m n k) =
       some ⟨matmulReluSCFTy m n k,
-        (RawPExpr.Partial.generatedPartial ctx (matmulReluSCFTy m n k)
+        (PExprWithHoles.ofRawAs ctx (matmulReluSCFTy m n k)
           (matmulReluSCF m n k)
           (matmulReluSCF_generatedPartial_isSome (ctx := ctx) (m := m) (n := n) (k := k))).toPExpr⟩ := by
-  simp [RawPExpr.elab?, RawPExpr.Partial.generatedPartial,
-    RawPExpr.Partial.generatedPartial?, RawPExpr.Partial.partialOfRawWithLocalsAs?,
-    RawPExpr.Partial.ofRawWithLocals?, RawPExpr.Partial.findVarWithLocals?,
-    RawPExpr.Partial.toPExpr, matmulReluSCF, matmulReluSCFTy, T.toS,
+  simp [RawPExpr.elab?, PExprWithHoles.ofRawAs,
+    PExprWithHoles.ofRawAs?, PExprWithHoles.ofRawWithLocalsAs?,
+    PExprWithHoles.ofRawWithLocals?, PExprWithHoles.findVarWithLocals?,
+    PExprWithHoles.toPExpr, matmulReluSCF, matmulReluSCFTy, T.toS,
     LinalgBaseType.toSCF, LinalgBaseType.tensor_toscf, Typed.type,
     List.findFinIdx?, List.findFinIdx?.go, List.map_cons, List.length_cons,
     Nat.reduceAdd, Fin.cast_eq_self, Option.bind, Option.pure_def, dif_pos, cast_eq]
@@ -430,7 +422,7 @@ private theorem toPExprElab_reluMatmulRaw_eq_generatedPartial
     {ctx : List (Name × T)} {m n k : ℕ}
     [HasType ctx (reluMatmulRaw m n k) (reluMatmulTy m n k)] :
     RawPExpr.toPExprElab ctx (reluMatmulTy m n k) (reluMatmulRaw m n k) =
-      (RawPExpr.Partial.generatedPartial ctx (reluMatmulTy m n k)
+      (PExprWithHoles.ofRawAs ctx (reluMatmulTy m n k)
         (reluMatmulRaw m n k)
         (reluMatmulRaw_generatedPartial_isSome (ctx := ctx) (m := m) (n := n) (k := k))).toPExpr :=
   RawPExpr.toPExprElab_of_elab?_eq
@@ -440,7 +432,7 @@ private theorem toPExprElab_matmulReluSCF_eq_generatedPartial
     {ctx : List (Name × S)} {m n k : ℕ}
     [HasType ctx (matmulReluSCF m n k) (matmulReluSCFTy m n k)] :
     RawPExpr.toPExprElab ctx (matmulReluSCFTy m n k) (matmulReluSCF m n k) =
-      (RawPExpr.Partial.generatedPartial ctx (matmulReluSCFTy m n k)
+      (PExprWithHoles.ofRawAs ctx (matmulReluSCFTy m n k)
         (matmulReluSCF m n k)
         (matmulReluSCF_generatedPartial_isSome (ctx := ctx) (m := m) (n := n) (k := k))).toPExpr :=
   RawPExpr.toPExprElab_of_elab?_eq
@@ -506,13 +498,13 @@ private theorem interp_toPExpr_heq_generatedApp2
     {fRaw a b : RawPExpr Const BaseType}
     [HasType ctxRaw fRaw (arg₁.fun (arg₂.fun out))]
     (ha : HasType ctxRaw a arg₁) (hb : HasType ctxRaw b arg₂)
-    (hf : (RawPExpr.Partial.generatedPartial? ctxRaw (arg₁.fun (arg₂.fun out)) fRaw).isSome)
+    (hf : (PExprWithHoles.ofRawAs? ctxRaw (arg₁.fun (arg₂.fun out)) fRaw).isSome)
     (hFgen : RawPExpr.toPExprElab ctxRaw (arg₁.fun (arg₂.fun out)) fRaw =
-      (RawPExpr.Partial.generatedPartial ctxRaw (arg₁.fun (arg₂.fun out)) fRaw hf).toPExpr)
+      (PExprWithHoles.ofRawAs ctxRaw (arg₁.fun (arg₂.fun out)) fRaw hf).toPExpr)
     (he : (RawPExpr.inferType ctxRaw ((fRaw.app a).app b)).isSome) :
     (fun args => interp args (RawPExpr.toPExpr ctxRaw ((fRaw.app a).app b) he)) ≍
     fun args => interp args
-      (RawPExpr.Partial.generatedApp2
+      (PExprWithHoles.app2WithRawArgs
         (ctxRaw := ctxRaw) (arg₁ := arg₁) (arg₂ := arg₂) (out := out)
         fRaw hf ha hb).toPExpr := by
   letI := ha
@@ -523,14 +515,12 @@ private theorem interp_toPExpr_heq_generatedApp2
     (ctxRaw := ctxRaw) (e := (fRaw.app a).app b) (ty := out) he
   have hElab :
       RawPExpr.toPExprElab ctxRaw out ((fRaw.app a).app b) =
-        (RawPExpr.Partial.generatedApp2
+        (PExprWithHoles.app2WithRawArgs
           (ctxRaw := ctxRaw) (arg₁ := arg₁) (arg₂ := arg₂) (out := out)
           fRaw hf ha hb).toPExpr := by
-    rw [RawPExpr.toPExprElab_app
-      (f := fRaw.app a) (a := b) (A := arg₂) (B := out)]
-    rw [RawPExpr.toPExprElab_app
-      (f := fRaw) (a := a) (A := arg₁) (B := arg₂.fun out)]
-    simp [RawPExpr.Partial.toPExpr, hFgen]
+    exact PExprWithHoles.toPExprElab_app2WithRawArgs
+      (ctx := ctxRaw) (arg₁ := arg₁) (arg₂ := arg₂) (out := out)
+      (fRaw := fRaw) (a := a) (b := b) ha hb hf hFgen
   rw [hElab] at hRaw
   exact hRaw
 

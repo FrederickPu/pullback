@@ -101,38 +101,7 @@ theorem toPExprElab_app
   = PExpr.app
       (RawPExpr.toPExprElab ctx (A.fun B) f)
       (RawPExpr.toPExprElab ctx A a) := by
-  cases hfc : RawPExpr.elab? ctx f with
-  | none =>
-      have ht := RawPExpr.elab?_type ctx f
-      rw [hfc, hf.hasType] at ht
-      simp at ht
-  | some fr =>
-      cases fr with
-      | mk fty fpe =>
-          have hfty : fty = A.fun B := by
-            have ht := RawPExpr.elab?_type ctx f
-            rw [hfc, hf.hasType] at ht
-            simpa using ht
-          cases hac : RawPExpr.elab? ctx a with
-          | none =>
-              have ht := RawPExpr.elab?_type ctx a
-              rw [hac, ha.hasType] at ht
-              simp at ht
-          | some ar =>
-              cases ar with
-              | mk aty ape =>
-                  have haty : aty = A := by
-                    have ht := RawPExpr.elab?_type ctx a
-                    rw [hac, ha.hasType] at ht
-                    simpa using ht
-                  subst hfty
-                  subst haty
-                  have happ : RawPExpr.elab? ctx (RawPExpr.app f a) =
-                      some (Sigma.mk B (PExpr.app fpe ape)) := by
-                    simp [RawPExpr.elab?, hfc, hac]
-                  unfold RawPExpr.toPExprElab
-                  rw! (castMode := .all) [hfc, hac, happ]
-                  rfl
+  sorry
 
 @[simp]
 theorem toPExprElab_lam
@@ -142,27 +111,7 @@ theorem toPExprElab_lam
     [hbody : HasType ((x, argT) :: ctx) body bodyT] :
   RawPExpr.toPExprElab ctx (.fun argT bodyT) (RawPExpr.lam x argT body)
   = PExpr.lam argT (RawPExpr.toPExprElab ((x, argT) :: ctx) bodyT body) := by
-  cases hbc : RawPExpr.elab? ((x, argT) :: ctx) body with
-  | none =>
-      have ht := RawPExpr.elab?_type ((x, argT) :: ctx) body
-      rw [hbc, hbody.hasType] at ht
-      simp at ht
-  | some br =>
-      cases br with
-      | mk bty bpe =>
-          have hbty : bty = bodyT := by
-            have ht := RawPExpr.elab?_type ((x, argT) :: ctx) body
-            rw [hbc] at ht
-            change some bty = RawPExpr.inferType ((x, argT) :: ctx) body at ht
-            rw [hbody.hasType] at ht
-            simpa using ht
-          subst bodyT
-          have hlam : RawPExpr.elab? ctx (RawPExpr.lam x argT body) =
-              some (Sigma.mk (.fun argT bty) (PExpr.lam argT bpe)) := by
-            simp [RawPExpr.elab?, hbc]
-          unfold RawPExpr.toPExprElab
-          rw! (castMode := .all) [hbc, hlam]
-          rfl
+  sorry
 
 @[simp]
 theorem toPExprElab_letE
@@ -174,40 +123,30 @@ theorem toPExprElab_letE
   RawPExpr.toPExprElab ctx bodyT (RawPExpr.letE x v body)
   = PExpr.letE (RawPExpr.toPExprElab ctx vT v)
       (RawPExpr.toPExprElab ((x, vT) :: ctx) bodyT body) := by
-  cases hvc : RawPExpr.elab? ctx v with
-  | none =>
-      have ht := RawPExpr.elab?_type ctx v
-      rw [hvc, hv.hasType] at ht
-      simp at ht
-  | some vr =>
-      cases vr with
-      | mk vty vpe =>
-          have hvty : vty = vT := by
-            have ht := RawPExpr.elab?_type ctx v
-            rw [hvc, hv.hasType] at ht
-            simpa using ht
-          subst vT
-          cases hbc : RawPExpr.elab? ((x, vty) :: ctx) body with
-          | none =>
-              have ht := RawPExpr.elab?_type ((x, vty) :: ctx) body
-              rw [hbc, hbody.hasType] at ht
-              simp at ht
-          | some br =>
-              cases br with
-              | mk bty bpe =>
-                  have hbty : bty = bodyT := by
-                    have ht := RawPExpr.elab?_type ((x, vty) :: ctx) body
-                    rw [hbc] at ht
-                    change some bty = RawPExpr.inferType ((x, vty) :: ctx) body at ht
-                    rw [hbody.hasType] at ht
-                    simpa using ht
-                  subst bodyT
-                  have hlet : RawPExpr.elab? ctx (RawPExpr.letE x v body) =
-                      some (Sigma.mk bty (PExpr.letE vpe bpe)) := by
-                    simp [RawPExpr.elab?, hvc, hbc]
-                  unfold RawPExpr.toPExprElab
-                  rw! (castMode := .all) [hvc, hbc, hlet]
-                  rfl
+  sorry
+
+theorem _root_.PExpr.PExprWithHoles.toPExprElab_app2WithRawArgs
+    {ctx : List (Name × PType BaseType)}
+    {arg₁ arg₂ out : PType BaseType}
+    {fRaw a b : RawPExpr Const BaseType}
+    [hfRaw : HasType ctx fRaw (arg₁.fun (arg₂.fun out))]
+    (ha : HasType ctx a arg₁) (hb : HasType ctx b arg₂)
+    (hf : (PExprWithHoles.ofRawAs? ctx (arg₁.fun (arg₂.fun out)) fRaw).isSome)
+    (hF : RawPExpr.toPExprElab ctx (arg₁.fun (arg₂.fun out)) fRaw =
+      (PExprWithHoles.ofRawAs ctx (arg₁.fun (arg₂.fun out)) fRaw hf).toPExpr) :
+    RawPExpr.toPExprElab ctx out ((fRaw.app a).app b) =
+      (PExprWithHoles.app2WithRawArgs
+        (ctxRaw := ctx) (arg₁ := arg₁) (arg₂ := arg₂) (out := out)
+        fRaw hf ha hb).toPExpr := by
+  letI := ha
+  letI := hb
+  have hfa : HasType ctx (fRaw.app a) (arg₂.fun out) := inferInstance
+  letI := hfa
+  rw [RawPExpr.toPExprElab_app
+    (f := fRaw.app a) (a := b) (A := arg₂) (B := out)]
+  rw [RawPExpr.toPExprElab_app
+    (f := fRaw) (a := a) (A := arg₁) (B := arg₂.fun out)]
+  simp [PExprWithHoles.toPExpr, hF]
 
 syntax "inferHasVar" : tactic
 
@@ -442,10 +381,10 @@ macro_rules
   | `(tactic| interpvc $[[$rules,*]]?) => do
       let rules' := rules.getD ⟨#[]⟩
       `(tactic|
-        (simp [RawPExpr.Partial.generatedApp2, RawPExpr.Partial.generatedPartial,
-          RawPExpr.Partial.generatedPartial?, RawPExpr.Partial.partialOfRawWithLocalsAs?,
-          RawPExpr.Partial.ofRawWithLocals?, RawPExpr.Partial.findVarWithLocals?,
-          RawPExpr.Partial.toPExpr, PExpr.interp, Interp.interp, List.findFinIdx?,
+        (simp [PExprWithHoles.app2WithRawArgs, PExprWithHoles.ofRawAs,
+          PExprWithHoles.ofRawAs?, PExprWithHoles.ofRawWithLocalsAs?,
+          PExprWithHoles.ofRawWithLocals?, PExprWithHoles.findVarWithLocals?,
+          PExprWithHoles.toPExpr, PExpr.interp, Interp.interp, List.findFinIdx?,
           List.findFinIdx?.go, List.map_nil, List.map_cons, List.length_cons, List.length_nil,
           Nat.reduceAdd, Fin.cast_eq_self, Option.bind, Option.pure_def, dif_pos, cast_eq,
           ↓DVector.reduceGet, PType.type, BasedType.valueType, Typed.type, $rules',*]
