@@ -69,6 +69,14 @@ lemma type_weaken
         omega) := by
   induction ty generalizing ctxTy <;> simp [PType.weaken, PType.type, *]
 
+@[simp] lemma weaken_irrel
+    {BaseType : Type}
+    {m n : Nat}
+    (h₁ h₂ : m ≤ n)
+    (ty : PType BaseType m) :
+    PType.weaken h₁ ty = PType.weaken h₂ ty := by
+  induction ty generalizing h₁ h₂ <;> simp [PType.weaken, *]
+
 end PType
 
 
@@ -314,11 +322,32 @@ def PExpr.interp
       PExpr.interp body <|
         DVector.cons' x args
 
+inductive RawPType (BaseType : Type) where
+| tyVar : RawPType BaseType
+| ofBase : BaseType → RawPType BaseType
+| fun : RawPType BaseType → RawPType BaseType → RawPType BaseType
+| prod : RawPType BaseType → RawPType BaseType → RawPType BaseType
+deriving DecidableEq
+
+namespace RawPType
+
+def toPPType {BaseType : Type} : RawPType BaseType → PPType BaseType
+| .tyVar => ⟨1, .tyVar 0⟩
+| .ofBase b => ⟨0, .ofBase b⟩
+| .fun a b => PPType.fun a.toPPType b.toPPType
+| .prod a b =>
+    let ⟨na, ta⟩ := a.toPPType
+    let ⟨nb, tb⟩ := b.toPPType
+    let N := max na nb
+    ⟨N, PType.prod (PType.weaken (Nat.le_max_left _ _) ta) (PType.weaken (Nat.le_max_right _ _) tb)⟩
+
+end RawPType
+
 inductive RawPExpr (Const BaseType : Type)
 where
 | var   (x : Name)
 | app   (f a : RawPExpr Const BaseType)
-| lam   (x : Name) (ty : PPType BaseType)
+| lam   (x : Name) (ty : RawPType BaseType)
         (body : RawPExpr Const BaseType)
 | letE  (x : Name)
         (v body : RawPExpr Const BaseType)
@@ -347,8 +376,8 @@ def inferType
     | _ =>
         none
 | .lam x ty body => do
-    let bodyT ← inferType ((x, ty) :: ctxRaw) body
-    return PPType.fun ty bodyT
+    let bodyT ← inferType ((x, ty.toPPType) :: ctxRaw) body
+    return PPType.fun ty.toPPType bodyT
 | .letE x v body => do
     let vT ← inferType ctxRaw v
     inferType ((x, vT) :: ctxRaw) body
@@ -416,7 +445,7 @@ lemma ctxTypesAt_map_weaken
       ctxTypesAt ctxRaw M (Nat.le_trans hN hNM) := by
   simp [ctxTypesAt, PType.weaken_comp]
 
-lemma ctxTypesAt_proof_irrel
+@[simp] lemma ctxTypesAt_proof_irrel
     {BaseType : Type}
     (ctxRaw : List (Name × PPType BaseType))
     {N : Nat}
@@ -468,24 +497,52 @@ private def toPExprAux
     let idx : Fin ctx.length := Fin.cast (by simp [ctx, ctxTypesAt]) i
     some ⟨bound, Nat.le_refl _, ctx.get idx, .var idx⟩
 | ctxRaw, .lam x ty body =>
-    match toPExprAux ((x, ty) :: ctxRaw) body with
+    match toPExprAux ((x, ty.toPPType) :: ctxRaw) body with
     | none => none
     | some bodyRes =>
         match bodyRes with
             | ⟨bodyBound, bodyCtxOk, bodyTy, bodyTerm⟩ =>
-                match ty with
-                | ⟨nArg, argT⟩ =>
+                let nArg := ty.toPPType.1
+                let argT := ty.toPPType.2
                 let bound := max (max nArg bodyBound) (ctxN ctxRaw)
                 let argOk : nArg ≤ bound := le_trans (Nat.le_max_left _ _) (Nat.le_max_left _ _)
                 let bodyOk : bodyBound ≤ bound := le_trans (Nat.le_max_right _ _) (Nat.le_max_left _ _)
                 let ctxOk : ctxN ctxRaw ≤ bound := by omega
                 let outerCtx := ctxTypesAt ctxRaw bound ctxOk
-                let bodyCtxOk : ctxN ((x, ⟨nArg, argT⟩) :: ctxRaw) ≤ bound := by
+                let bodyCtxOk' : ctxN ((x, ⟨nArg, argT⟩) :: ctxRaw) ≤ bound := by
                   dsimp [ctxN]
                   exact Nat.max_le.mpr ⟨argOk, ctxOk⟩
+                have bodyCtxEq :
+                    List.map (PType.weaken bodyOk)
+                      (ctxTypesAt ((x, ty.toPPType) :: ctxRaw) bodyBound bodyCtxOk)
+                    = PType.weaken argOk argT :: outerCtx := by
+                  have hmap :
+                      List.map (PType.weaken bodyOk)
+                        (ctxTypesAt ((x, ty.toPPType) :: ctxRaw) bodyBound bodyCtxOk)
+                      = ctxTypesAt ((x, ty.toPPType) :: ctxRaw) bound bodyCtxOk' := by
+                    simpa using (ctxTypesAt_map_weaken
+                      (ctxRaw := (x, ty.toPPType) :: ctxRaw)
+                      (hN := bodyCtxOk)
+                      (hNM := bodyOk))
+                  have hcons := ctxTypesAt_cons (ctxRaw := ctxRaw) (x := x) (ty := ty.toPPType) (N := bound) bodyCtxOk'
+                  have hhead :
+                      PType.weaken (Nat.le_trans (Nat.le_max_left nArg (ctxN ctxRaw)) bodyCtxOk') argT =
+                        PType.weaken argOk argT := by
+                    simpa [argOk] using (PType.weaken_irrel
+                      (h₁ := Nat.le_trans (Nat.le_max_left nArg (ctxN ctxRaw)) bodyCtxOk')
+                      (h₂ := argOk)
+                      (ty := argT))
+                  have htail :
+                      ctxTypesAt ctxRaw bound (Nat.le_trans (Nat.le_max_right nArg (ctxN ctxRaw)) bodyCtxOk') = outerCtx := by
+                    exact ctxTypesAt_proof_irrel _ _ _
+                  have hcons' : ctxTypesAt ((x, ty.toPPType) :: ctxRaw) bound bodyCtxOk' =
+                      PType.weaken argOk argT :: outerCtx := by
+                    simpa [hhead, htail] using hcons
+                  exact hmap.trans hcons'
                 let bodyTerm' : PExpr Const BaseType bound (PType.weaken argOk argT :: outerCtx) (PType.weaken bodyOk bodyTy) := by
-                  simpa [outerCtx, ctxTypesAt_map_weaken, ctxTypesAt_cons, ctxTypesAt_proof_irrel, PType.weaken_comp]
-                    using (PExpr.weakenT bodyOk bodyTerm)
+                  have hterm := PExpr.weakenT bodyOk bodyTerm
+                  rw [bodyCtxEq] at hterm
+                  exact hterm
                 some ⟨bound, ctxOk, PType.fun (PType.weaken argOk argT) (PType.weaken bodyOk bodyTy),
                   PExpr.lam (PType.weaken argOk argT) bodyTerm'⟩
 | ctxRaw, .app f a =>
@@ -537,12 +594,37 @@ private def toPExprAux
                       simpa [ctxTypesAt_map_weaken, ctxTypesAt_proof_irrel, PType.weaken_comp]
                         using (PExpr.weakenT valOk valTerm)
                     let bodyRawCtxOk : ctxN bodyRawCtx ≤ bound := by omega
-                    have bodyCtxEq : ctxTypesAt bodyRawCtx bound bodyRawCtxOk = PType.weaken valOk valTy :: ctxTypesAt ctxRaw bound ctxOk := by
-                      simpa [bodyRawCtx, ctxTypesAt_proof_irrel] using
-                        (ctxTypesAt_cons (ctxRaw := ctxRaw) (x := x) (ty := ⟨valBound, valTy⟩) (N := bound) bodyRawCtxOk)
+                    have bodyCtxEq :
+                        List.map (PType.weaken bodyOk)
+                          (ctxTypesAt bodyRawCtx bodyBound bodyCtxOk)
+                        = PType.weaken valOk valTy :: ctxTypesAt ctxRaw bound ctxOk := by
+                      have hmap :
+                          List.map (PType.weaken bodyOk)
+                            (ctxTypesAt bodyRawCtx bodyBound bodyCtxOk)
+                          = ctxTypesAt bodyRawCtx bound bodyRawCtxOk := by
+                        simpa using (ctxTypesAt_map_weaken
+                          (ctxRaw := bodyRawCtx)
+                          (hN := bodyCtxOk)
+                          (hNM := bodyOk))
+                      have hcons := ctxTypesAt_cons (ctxRaw := ctxRaw) (x := x) (ty := ⟨valBound, valTy⟩) (N := bound) bodyRawCtxOk
+                      have hhead :
+                          PType.weaken (Nat.le_trans (Nat.le_max_left valBound (ctxN ctxRaw)) bodyRawCtxOk) valTy =
+                            PType.weaken valOk valTy := by
+                        simpa [valOk] using (PType.weaken_irrel
+                          (h₁ := Nat.le_trans (Nat.le_max_left valBound (ctxN ctxRaw)) bodyRawCtxOk)
+                          (h₂ := valOk)
+                          (ty := valTy))
+                      have htail :
+                          ctxTypesAt ctxRaw bound (Nat.le_trans (Nat.le_max_right valBound (ctxN ctxRaw)) bodyRawCtxOk) = ctxTypesAt ctxRaw bound ctxOk := by
+                        exact ctxTypesAt_proof_irrel _ _ _
+                      have hcons' : ctxTypesAt bodyRawCtx bound bodyRawCtxOk =
+                          PType.weaken valOk valTy :: ctxTypesAt ctxRaw bound ctxOk := by
+                        simpa [hhead, htail] using hcons
+                      exact hmap.trans hcons'
                     let bodyTerm' : PExpr Const BaseType bound (PType.weaken valOk valTy :: ctxTypesAt ctxRaw bound ctxOk) (PType.weaken bodyOk bodyTy) := by
-                      simpa [ctxTypesAt_map_weaken, ctxTypesAt_proof_irrel, PType.weaken_comp, bodyCtxEq]
-                        using (PExpr.weakenT bodyOk bodyTerm)
+                      have hterm := PExpr.weakenT bodyOk bodyTerm
+                      rw [bodyCtxEq] at hterm
+                      exact hterm
                     some ⟨bound, ctxOk, PType.weaken bodyOk bodyTy, PExpr.letE valTerm' bodyTerm'⟩
 
 def toPExpr
